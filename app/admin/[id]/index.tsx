@@ -1,13 +1,31 @@
 import { useEffect, useState } from 'react'
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native'
+import {
+  View, Text, StyleSheet, ScrollView,
+  TouchableOpacity, Alert
+} from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
-import { theme } from '@/theme'
 import Avatar from '@/components/Avatar'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import Card from '@/components/Card'
+import Badge from '@/components/Badge'
+
+const N = {
+  forest:    '#1A3C2E',
+  moss:      '#2D5A3D',
+  sage:      '#4A7C59',
+  mint:      '#7FB069',
+  leaf:      '#A8C97F',
+  mist:      '#E8F0E4',
+  cream:     '#FAF7F2',
+  stone:     '#8A8A7A',
+  white:     '#FFFFFF',
+  parchment: '#EDE8DF',
+  danger:    '#B45309',
+  dangerLight: '#FEF3C7',
+}
 
 type Patient = { id: string; name: string; email: string; created_at: string }
 type Appointment = { id: string; provider: string; datetime: string; repeat: string }
@@ -47,10 +65,13 @@ export default function PatientDetail() {
 
   const handleSave = async () => {
     setSaving(true)
-    const { error } = await supabase.from('patients').update({ name: editName, email: editEmail }).eq('id', id)
+    const { error } = await supabase
+      .from('patients')
+      .update({ name: editName, email: editEmail })
+      .eq('id', id)
     if (error) Alert.alert('Error ❌', 'Failed to update patient')
     else {
-      Alert.alert('Success ✅', 'Patient updated!')
+      Alert.alert('Success 🌿', 'Patient updated!')
       setPatient(prev => prev ? { ...prev, name: editName, email: editEmail } : prev)
       setEditMode(false)
     }
@@ -58,180 +79,320 @@ export default function PatientDetail() {
   }
 
   const handleDeleteAppointment = (apptId: string) => {
-    Alert.alert('Delete Appointment', 'Are you sure?', [
+    Alert.alert('Delete Appointment', 'Are you sure you want to delete this?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-        const { error } = await supabase.from('appointments').delete().eq('id', apptId)
-        if (error) Alert.alert('Error ❌', 'Failed to delete')
-        else { Alert.alert('Deleted ✅', 'Appointment deleted!'); setAppointments(prev => prev.filter(a => a.id !== apptId)) }
-      }}
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          const { error } = await supabase.from('appointments').delete().eq('id', apptId)
+          if (error) Alert.alert('Error ❌', 'Failed to delete')
+          else {
+            Alert.alert('Deleted 🌿', 'Appointment removed!')
+            setAppointments(prev => prev.filter(a => a.id !== apptId))
+          }
+        }
+      }
     ])
   }
 
   const handleDeletePrescription = (presId: string) => {
-    Alert.alert('Delete Prescription', 'Are you sure?', [
+    Alert.alert('Delete Prescription', 'Are you sure you want to delete this?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-        const { error } = await supabase.from('prescriptions').delete().eq('id', presId)
-        if (error) Alert.alert('Error ❌', 'Failed to delete')
-        else { Alert.alert('Deleted ✅', 'Prescription deleted!'); setPrescriptions(prev => prev.filter(p => p.id !== presId)) }
-      }}
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          const { error } = await supabase.from('prescriptions').delete().eq('id', presId)
+          if (error) Alert.alert('Error ❌', 'Failed to delete')
+          else {
+            Alert.alert('Deleted 🌿', 'Prescription removed!')
+            setPrescriptions(prev => prev.filter(p => p.id !== presId))
+          }
+        }
+      }
     ])
   }
 
   const formatDateTime = (dt: string) => {
     if (!dt) return '—'
-    return new Date(dt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+    return new Date(dt).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true
+    })
   }
 
   if (loading) return <LoadingSpinner message="Loading patient..." />
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push('/admin')}><Text style={styles.backBtn}>← Back</Text></TouchableOpacity>
-        <Text style={styles.headerTitle}>Patient Record</Text>
+    <View style={s.root}>
+
+      {/* Header */}
+      <View style={s.header}>
+        <TouchableOpacity onPress={() => router.push('/admin')} style={s.backBtn} activeOpacity={0.7}>
+          <Text style={s.backTxt}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>Patient Record</Text>
         <View style={{ width: 60 }} />
       </View>
 
-      <View style={styles.hero}>
+      {/* Hero */}
+      <View style={s.hero}>
         <Avatar name={patient?.name || ''} size={64} />
-        <View style={styles.heroInfo}>
-          <Text style={styles.heroName}>{patient?.name}</Text>
-          <Text style={styles.heroEmail}>{patient?.email}</Text>
+        <View style={s.heroInfo}>
+          <Text style={s.heroEye}>PATIENT</Text>
+          <Text style={s.heroName}>{patient?.name}</Text>
+          <Text style={s.heroEmail}>{patient?.email}</Text>
+        </View>
+        <View style={s.heroBadge}>
+          <View style={s.heroBadgeDot} />
+          <Text style={s.heroBadgeTxt}>Active</Text>
         </View>
       </View>
 
-      <View style={styles.tabs}>
-        {(['info', 'appointments', 'prescriptions'] as const).map(tab => (
-          <TouchableOpacity key={tab} style={[styles.tab, activeTab === tab && styles.tabActive]} onPress={() => setActiveTab(tab)}>
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-              {tab === 'info' ? '👤 Info' : tab === 'appointments' ? '📅 Appointments' : '💊 Prescriptions'}
+      {/* Tabs */}
+      <View style={s.tabs}>
+        {([
+          { key: 'info', label: '👤 Info' },
+          { key: 'appointments', label: `📅 Appointments (${appointments.length})` },
+          { key: 'prescriptions', label: `💊 Prescriptions (${prescriptions.length})` },
+        ] as const).map(tab => (
+          <TouchableOpacity
+            key={tab.key}
+            style={[s.tab, activeTab === tab.key && s.tabActive]}
+            onPress={() => setActiveTab(tab.key)}
+            activeOpacity={0.7}
+          >
+            <Text style={[s.tabTxt, activeTab === tab.key && s.tabTxtActive]}>
+              {tab.label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={s.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 20, paddingBottom: 60 }}
+      >
+
+        {/* INFO TAB */}
         {activeTab === 'info' && (
           <Card>
-            <View style={styles.infoHeader}>
-              <Text style={styles.cardTitle}>Patient Information</Text>
+            <View style={s.infoHeader}>
+              <Text style={s.cardTitle}>Patient Information</Text>
               {!editMode && (
-                <TouchableOpacity onPress={() => setEditMode(true)} style={styles.editBtn}>
-                  <Text style={styles.editBtnText}>✏️ Edit</Text>
+                <TouchableOpacity
+                  style={s.editBtn}
+                  onPress={() => setEditMode(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.editBtnTxt}>✏️ Edit</Text>
                 </TouchableOpacity>
               )}
             </View>
+
             {editMode ? (
               <>
                 <Input label="Full Name" value={editName} onChangeText={setEditName} />
                 <Input label="Email" value={editEmail} onChangeText={setEditEmail} keyboardType="email-address" autoCapitalize="none" />
-                <View style={styles.editActions}>
+                <View style={s.editActions}>
                   <Button title="Cancel" variant="secondary" onPress={() => setEditMode(false)} />
                   <Button title="Save Changes" onPress={handleSave} loading={saving} />
                 </View>
               </>
             ) : (
               <>
-                <View style={styles.infoRow}><Text style={styles.infoLabel}>Name</Text><Text style={styles.infoValue}>{patient?.name}</Text></View>
-                <View style={styles.infoRow}><Text style={styles.infoLabel}>Email</Text><Text style={styles.infoValue}>{patient?.email}</Text></View>
-                <View style={styles.infoRow}><Text style={styles.infoLabel}>Member Since</Text><Text style={styles.infoValue}>{patient?.created_at ? new Date(patient.created_at).toLocaleDateString() : '—'}</Text></View>
+                <View style={s.infoRow}>
+                  <Text style={s.infoLabel}>Full Name</Text>
+                  <Text style={s.infoValue}>{patient?.name}</Text>
+                </View>
+                <View style={s.infoRow}>
+                  <Text style={s.infoLabel}>Email</Text>
+                  <Text style={s.infoValue}>{patient?.email}</Text>
+                </View>
+                <View style={s.infoRow}>
+                  <Text style={s.infoLabel}>Member Since</Text>
+                  <Text style={s.infoValue}>
+                    {patient?.created_at ? new Date(patient.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
+                  </Text>
+                </View>
+                <View style={[s.infoRow, { borderBottomWidth: 0 }]}>
+                  <Text style={s.infoLabel}>Patient ID</Text>
+                  <Text style={s.infoValue}>#{patient?.id.slice(0, 8).toUpperCase()}</Text>
+                </View>
               </>
             )}
           </Card>
         )}
 
+        {/* APPOINTMENTS TAB */}
         {activeTab === 'appointments' && (
           <View>
-            <View style={styles.tabActionRow}>
-              <Text style={styles.cardTitle}>Appointments ({appointments.length})</Text>
-              <TouchableOpacity style={styles.manageBtn} onPress={() => router.push(`/admin/${id}/appointments`)}>
-                <Text style={styles.manageBtnText}>+ Manage</Text>
+            <View style={s.tabActionRow}>
+              <Text style={s.sectionTitle}>All Appointments</Text>
+              <TouchableOpacity
+                style={s.manageBtn}
+                onPress={() => router.push(`/admin/${id}/appointments`)}
+                activeOpacity={0.7}
+              >
+                <Text style={s.manageBtnTxt}>＋ Manage</Text>
               </TouchableOpacity>
             </View>
+
             {appointments.length === 0 ? (
-              <Card><Text style={styles.emptyText}>No appointments yet</Text></Card>
+              <View style={s.emptyCard}>
+                <Text style={s.emptyIcon}>📅</Text>
+                <Text style={s.emptyTxt}>No appointments yet</Text>
+                <Text style={s.emptySub}>Add the first appointment for this patient</Text>
+              </View>
             ) : appointments.map(appt => (
-              <Card key={appt.id}>
-                <View style={styles.recordRow}>
-                  <View style={styles.recordInfo}>
-                    <Text style={styles.recordTitle}>{appt.provider}</Text>
-                    <Text style={styles.recordSub}>📅 {formatDateTime(appt.datetime)}</Text>
-                    <Text style={styles.recordSub}>🔄 Repeats {appt.repeat}</Text>
+              <View key={appt.id} style={s.recordCard}>
+                <View style={s.recordLeft}>
+                  <View style={s.recordIconBox}>
+                    <Text style={s.recordIcon}>📅</Text>
                   </View>
-                  <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteAppointment(appt.id)}>
-                    <Text style={styles.deleteBtnText}>🗑</Text>
-                  </TouchableOpacity>
+                  <View style={s.recordInfo}>
+                    <Text style={s.recordTitle}>{appt.provider}</Text>
+                    <Text style={s.recordSub}>{formatDateTime(appt.datetime)}</Text>
+                    <View style={s.repeatBadge}>
+                      <Text style={s.repeatTxt}>🔄 {appt.repeat}</Text>
+                    </View>
+                  </View>
                 </View>
-              </Card>
+                <TouchableOpacity
+                  style={s.deleteBtn}
+                  onPress={() => handleDeleteAppointment(appt.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.deleteTxt}>🗑</Text>
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         )}
 
+        {/* PRESCRIPTIONS TAB */}
         {activeTab === 'prescriptions' && (
           <View>
-            <View style={styles.tabActionRow}>
-              <Text style={styles.cardTitle}>Prescriptions ({prescriptions.length})</Text>
-              <TouchableOpacity style={styles.manageBtn} onPress={() => router.push(`/admin/${id}/prescriptions`)}>
-                <Text style={styles.manageBtnText}>+ Manage</Text>
+            <View style={s.tabActionRow}>
+              <Text style={s.sectionTitle}>All Prescriptions</Text>
+              <TouchableOpacity
+                style={s.manageBtn}
+                onPress={() => router.push(`/admin/${id}/prescriptions`)}
+                activeOpacity={0.7}
+              >
+                <Text style={s.manageBtnTxt}>＋ Manage</Text>
               </TouchableOpacity>
             </View>
+
             {prescriptions.length === 0 ? (
-              <Card><Text style={styles.emptyText}>No prescriptions yet</Text></Card>
+              <View style={s.emptyCard}>
+                <Text style={s.emptyIcon}>💊</Text>
+                <Text style={s.emptyTxt}>No prescriptions yet</Text>
+                <Text style={s.emptySub}>Add the first prescription for this patient</Text>
+              </View>
             ) : prescriptions.map(pres => (
-              <Card key={pres.id}>
-                <View style={styles.recordRow}>
-                  <View style={styles.recordInfo}>
-                    <Text style={styles.recordTitle}>{pres.medication} — {pres.dosage}</Text>
-                    <Text style={styles.recordSub}>Qty: {pres.quantity} | {pres.refill_schedule}</Text>
-                    <Text style={styles.recordSub}>🔄 Refill on: {pres.refill_on}</Text>
+              <View key={pres.id} style={s.recordCard}>
+                <View style={s.recordLeft}>
+                  <View style={[s.recordIconBox, { backgroundColor: '#E8F4F8' }]}>
+                    <Text style={s.recordIcon}>💊</Text>
                   </View>
-                  <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeletePrescription(pres.id)}>
-                    <Text style={styles.deleteBtnText}>🗑</Text>
-                  </TouchableOpacity>
+                  <View style={s.recordInfo}>
+                    <Text style={s.recordTitle}>{pres.medication}</Text>
+                    <Text style={s.recordSub}>{pres.dosage} · Qty: {pres.quantity}</Text>
+                    <Text style={s.recordSub}>Refill: {pres.refill_on}</Text>
+                    <View style={s.repeatBadge}>
+                      <Text style={s.repeatTxt}>🔄 {pres.refill_schedule}</Text>
+                    </View>
+                  </View>
                 </View>
-              </Card>
+                <TouchableOpacity
+                  style={s.deleteBtn}
+                  onPress={() => handleDeletePrescription(pres.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.deleteTxt}>🗑</Text>
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         )}
-        <View style={{ height: 40 }} />
+
       </ScrollView>
     </View>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.background },
-  header: { backgroundColor: theme.primary, paddingHorizontal: 24, paddingVertical: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  backBtn: { color: theme.white, fontFamily: 'Nunito_600SemiBold', fontSize: 15 },
-  headerTitle: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', color: theme.white },
-  hero: { backgroundColor: theme.primary, paddingHorizontal: 24, paddingBottom: 24, flexDirection: 'row', alignItems: 'center', gap: 16 },
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: N.cream },
+
+  header: {
+    backgroundColor: N.forest,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+    paddingTop: 48,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  backBtn: { paddingVertical: 4, paddingHorizontal: 8 },
+  backTxt: { color: N.leaf, fontFamily: 'Nunito_600SemiBold', fontSize: 14 },
+  headerTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', color: N.white },
+
+  hero: {
+    backgroundColor: N.moss,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    paddingBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
   heroInfo: { flex: 1 },
-  heroName: { fontSize: 22, fontFamily: 'Nunito_800ExtraBold', color: theme.white },
-  heroEmail: { fontSize: 14, fontFamily: 'Nunito_400Regular', color: 'rgba(255,255,255,0.8)', marginTop: 2 },
-  tabs: { flexDirection: 'row', backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.border },
+  heroEye: { color: N.leaf, fontFamily: 'Nunito_700Bold', fontSize: 10, letterSpacing: 2, marginBottom: 2 },
+  heroName: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', color: N.white },
+  heroEmail: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: 'rgba(255,255,255,0.65)', marginTop: 2 },
+  heroBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.12)', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 },
+  heroBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: N.mint },
+  heroBadgeTxt: { color: N.white, fontFamily: 'Nunito_600SemiBold', fontSize: 12 },
+
+  tabs: { flexDirection: 'row', backgroundColor: N.white, borderBottomWidth: 1, borderBottomColor: N.parchment },
   tab: { flex: 1, paddingVertical: 14, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
-  tabActive: { borderBottomColor: theme.primary },
-  tabText: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: theme.muted },
-  tabTextActive: { color: theme.primary },
-  content: { flex: 1, padding: 16 },
+  tabActive: { borderBottomColor: N.moss },
+  tabTxt: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', color: N.stone },
+  tabTxtActive: { color: N.moss },
+
+  scroll: { flex: 1 },
+
+  cardTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest },
   infoHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  cardTitle: { fontSize: 16, fontFamily: 'Nunito_700Bold', color: theme.text },
-  editBtn: { backgroundColor: theme.primaryLight, paddingVertical: 6, paddingHorizontal: 14, borderRadius: theme.radiusFull },
-  editBtnText: { color: theme.primary, fontFamily: 'Nunito_600SemiBold', fontSize: 13 },
+  editBtn: { backgroundColor: N.mist, paddingVertical: 6, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: N.parchment },
+  editBtnTxt: { color: N.moss, fontFamily: 'Nunito_600SemiBold', fontSize: 13 },
   editActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border },
-  infoLabel: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', color: theme.muted },
-  infoValue: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', color: theme.text },
-  tabActionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  manageBtn: { backgroundColor: theme.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: theme.radiusFull },
-  manageBtnText: { color: theme.white, fontFamily: 'Nunito_700Bold', fontSize: 13 },
-  emptyText: { color: theme.muted, fontFamily: 'Nunito_400Regular', fontSize: 14, textAlign: 'center', paddingVertical: 12 },
-  recordRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: N.parchment },
+  infoLabel: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: N.stone },
+  infoValue: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: N.forest },
+
+  tabActionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  sectionTitle: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
+  manageBtn: { backgroundColor: N.moss, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10 },
+  manageBtnTxt: { color: N.white, fontFamily: 'Nunito_700Bold', fontSize: 13 },
+
+  emptyCard: { backgroundColor: N.white, borderRadius: 16, padding: 32, alignItems: 'center', borderWidth: 1, borderColor: N.parchment },
+  emptyIcon: { fontSize: 36, marginBottom: 10 },
+  emptyTxt: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest, marginBottom: 4 },
+  emptySub: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.stone, textAlign: 'center' },
+
+  recordCard: {
+    backgroundColor: N.white, borderRadius: 14, padding: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: N.parchment,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  recordLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, flex: 1 },
+  recordIconBox: { width: 40, height: 40, borderRadius: 12, backgroundColor: N.mist, alignItems: 'center', justifyContent: 'center' },
+  recordIcon: { fontSize: 18 },
   recordInfo: { flex: 1 },
-  recordTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: theme.text, marginBottom: 4 },
-  recordSub: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: theme.muted, marginBottom: 2 },
-  deleteBtn: { padding: 8 },
-  deleteBtnText: { fontSize: 18 },
+  recordTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest, marginBottom: 3 },
+  recordSub: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, marginBottom: 2 },
+  repeatBadge: { backgroundColor: N.mist, paddingVertical: 3, paddingHorizontal: 10, borderRadius: 20, alignSelf: 'flex-start', marginTop: 4 },
+  repeatTxt: { color: N.moss, fontFamily: 'Nunito_600SemiBold', fontSize: 11 },
+  deleteBtn: { padding: 8, backgroundColor: N.dangerLight, borderRadius: 10 },
+  deleteTxt: { fontSize: 16 },
 })
