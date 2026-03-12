@@ -1,29 +1,35 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Modal, TextInput
+  TouchableOpacity, Modal, TextInput, ActivityIndicator
 } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { showAlert, showConfirm } from '@/lib/webUtils'
+import { searchDrug, DrugInfo } from '@/lib/fdaApi'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import EmptyState from '@/components/EmptyState'
 
 const N = {
-  forest:      '#1A3C2E',
-  moss:        '#2D5A3D',
-  sage:        '#4A7C59',
+  forest:      '#18382C',
+  moss:        '#2F5D46',
+  sage:        '#6B8F71',
   mint:        '#7FB069',
-  leaf:        '#A8C97F',
-  mist:        '#E8F0E4',
+  leaf:        '#B7D39A',
+  mist:        '#F1F5EE',
   cream:       '#FAF7F2',
-  stone:       '#8A8A7A',
+  stone:       '#7C7A70',
   white:       '#FFFFFF',
-  parchment:   '#EDE8DF',
-  dangerLight: '#FEF3C7',
-  warning:     '#D97706',
+  parchment:   '#E8E1D6',
+  sand:        '#D6CEC1',
+  dangerLight: '#FDECEA',
+  danger:      '#B8402A',
+  warning:     '#C98A04',
+  warningLight:'#FEF3C7',
+  accent:      '#9A8FBF',
+  accentLight: '#EDE9F5',
 }
 
 type Prescription = {
@@ -52,6 +58,9 @@ export default function PrescriptionsCRUD() {
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [medSearch, setMedSearch] = useState('')
+  const [drugInfo, setDrugInfo] = useState<DrugInfo | null>(null)
+  const [loadingDrug, setLoadingDrug] = useState(false)
+  const [showDrugInfo, setShowDrugInfo] = useState(false)
   const [form, setForm] = useState({
     medication: '',
     dosage: '5mg',
@@ -88,6 +97,8 @@ export default function PrescriptionsCRUD() {
   const openAddModal = () => {
     setEditingId(null)
     setMedSearch('')
+    setDrugInfo(null)
+    setShowDrugInfo(false)
     setForm({ medication: '', dosage: '5mg', quantity: '1', refill_on: '', refill_schedule: 'monthly', notes: '' })
     setErrors({})
     setModalVisible(true)
@@ -96,6 +107,8 @@ export default function PrescriptionsCRUD() {
   const openEditModal = (pres: Prescription) => {
     setEditingId(pres.id)
     setMedSearch(pres.medication)
+    setDrugInfo(null)
+    setShowDrugInfo(false)
     setForm({
       medication: pres.medication,
       dosage: pres.dosage,
@@ -108,9 +121,18 @@ export default function PrescriptionsCRUD() {
     setModalVisible(true)
   }
 
-  const selectMedication = (med: string) => {
+  const selectMedication = async (med: string) => {
     setForm({ ...form, medication: med })
     setMedSearch(med)
+    setDrugInfo(null)
+    setShowDrugInfo(false)
+    setLoadingDrug(true)
+
+    // Fetch FDA drug info
+    const info = await searchDrug(med)
+    setDrugInfo(info)
+    setShowDrugInfo(!!info)
+    setLoadingDrug(false)
   }
 
   const filteredMeds = MEDICATIONS.filter(m =>
@@ -128,7 +150,6 @@ export default function PrescriptionsCRUD() {
         refill_on: form.refill_on,
         refill_schedule: form.refill_schedule,
       }
-      // Only add notes if column exists
       if (form.notes) payload.notes = form.notes
       if (editingId) {
         const { error } = await supabase.from('prescriptions').update(payload).eq('id', editingId)
@@ -182,26 +203,20 @@ export default function PrescriptionsCRUD() {
       {/* Banner */}
       <View style={s.banner}>
         <Text style={s.bannerTxt}>
-          {prescriptions.length} prescription{prescriptions.length !== 1 ? 's' : ''} on record
+          {prescriptions.length} prescription{prescriptions.length !== 1 ? 's' : ''} on record · Powered by FDA 🇺🇸
         </Text>
       </View>
 
       {loading ? (
         <LoadingSpinner message="Loading prescriptions..." />
       ) : prescriptions.length === 0 ? (
-        <View style={{ flex: 1 }}>
-          <EmptyState icon="💊" title="No prescriptions yet" message="Tap '+ Prescribe' to add the first prescription" />
-        </View>
+        <EmptyState icon="💊" title="No prescriptions yet" message="Tap '+ Prescribe' to add the first prescription" />
       ) : (
-        <ScrollView
-          style={s.scroll}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
-        >
+        <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
           {prescriptions.map(pres => (
             <View key={pres.id} style={[s.card, isRefillSoon(pres.refill_on) && s.cardAlert]}>
               <View style={s.cardTop}>
-                <View style={[s.cardIconBox, { backgroundColor: isRefillSoon(pres.refill_on) ? '#FEF9C3' : '#E8F4F8' }]}>
+                <View style={[s.cardIconBox, { backgroundColor: isRefillSoon(pres.refill_on) ? N.warningLight : '#E8F4F8' }]}>
                   <Text style={s.cardIcon}>💊</Text>
                 </View>
                 <View style={s.cardInfo}>
@@ -247,7 +262,7 @@ export default function PrescriptionsCRUD() {
               <Text style={s.modalTitle}>
                 {editingId ? '✏️ Edit Prescription' : '💊 New Prescription'}
               </Text>
-              <Text style={s.modalSub}>Search and select a medication, then fill in details</Text>
+              <Text style={s.modalSub}>Search and select a medication to see FDA information</Text>
               <View style={s.modalDivider} />
 
               {/* Medicine Search */}
@@ -262,43 +277,102 @@ export default function PrescriptionsCRUD() {
                   onChangeText={t => {
                     setMedSearch(t)
                     setForm({ ...form, medication: t })
+                    setDrugInfo(null)
+                    setShowDrugInfo(false)
                   }}
                 />
                 {medSearch.length > 0 && (
-                  <TouchableOpacity onPress={() => { setMedSearch(''); setForm({ ...form, medication: '' }) }}>
+                  <TouchableOpacity onPress={() => {
+                    setMedSearch('')
+                    setForm({ ...form, medication: '' })
+                    setDrugInfo(null)
+                    setShowDrugInfo(false)
+                  }}>
                     <Text style={{ color: N.stone, fontSize: 14 }}>✕</Text>
                   </TouchableOpacity>
                 )}
               </View>
               {errors.medication && <Text style={s.errorTxt}>⚠ {errors.medication}</Text>}
 
-              {/* Medicine Suggestions */}
-              {medSearch.length > 0 && filteredMeds.length > 0 && (
+              {/* Suggestions */}
+              {medSearch.length > 0 && filteredMeds.length > 0 && !form.medication && (
                 <View style={s.suggestionsBox}>
                   {filteredMeds.map(med => (
                     <TouchableOpacity
                       key={med}
-                      style={[s.suggestionItem, form.medication === med && s.suggestionItemActive]}
+                      style={s.suggestionItem}
                       onPress={() => selectMedication(med)}
                       activeOpacity={0.7}
                     >
                       <Text style={s.suggestionIcon}>💊</Text>
-                      <Text style={[s.suggestionTxt, form.medication === med && s.suggestionTxtActive]}>
-                        {med}
-                      </Text>
-                      {form.medication === med && <Text style={{ color: N.moss }}>✓</Text>}
+                      <Text style={s.suggestionTxt}>{med}</Text>
+                      <Text style={{ color: N.stone, fontSize: 11 }}>Tap to select →</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               )}
 
-              {/* Selected Medicine Badge */}
+              {/* Selected Badge */}
               {form.medication ? (
                 <View style={s.selectedMedBadge}>
                   <Text style={s.selectedMedIcon}>✅</Text>
                   <Text style={s.selectedMedTxt}>Selected: {form.medication}</Text>
+                  <TouchableOpacity onPress={() => {
+                    setForm({ ...form, medication: '' })
+                    setMedSearch('')
+                    setDrugInfo(null)
+                    setShowDrugInfo(false)
+                  }}>
+                    <Text style={{ color: N.stone, fontSize: 12 }}>Change</Text>
+                  </TouchableOpacity>
                 </View>
               ) : null}
+
+              {/* FDA Drug Info */}
+              {loadingDrug && (
+                <View style={s.fdaLoading}>
+                  <ActivityIndicator size="small" color={N.accent} />
+                  <Text style={s.fdaLoadingTxt}>Fetching FDA drug information...</Text>
+                </View>
+              )}
+
+              {showDrugInfo && drugInfo && (
+                <View style={s.fdaCard}>
+                  <View style={s.fdaHeader}>
+                    <Text style={s.fdaBadge}>🇺🇸 FDA</Text>
+                    <Text style={s.fdaTitle}>{drugInfo.name}</Text>
+                    <Text style={s.fdaGeneric}>Generic: {drugInfo.generic}</Text>
+                    <Text style={s.fdaManuf}>By: {drugInfo.manufacturer}</Text>
+                  </View>
+
+                  <View style={s.fdaSection}>
+                    <Text style={s.fdaSectionTitle}>📋 Purpose</Text>
+                    <Text style={s.fdaSectionTxt}>{drugInfo.purpose}</Text>
+                  </View>
+
+                  <View style={s.fdaSection}>
+                    <Text style={[s.fdaSectionTitle, { color: N.warning }]}>⚠️ Warnings</Text>
+                    <Text style={s.fdaSectionTxt}>{drugInfo.warnings}</Text>
+                  </View>
+
+                  <View style={s.fdaSection}>
+                    <Text style={[s.fdaSectionTitle, { color: N.danger }]}>🚨 Side Effects</Text>
+                    <Text style={s.fdaSectionTxt}>{drugInfo.sideEffects}</Text>
+                  </View>
+
+                  <View style={[s.fdaSection, { borderBottomWidth: 0 }]}>
+                    <Text style={s.fdaSectionTitle}>💊 Dosage Info</Text>
+                    <Text style={s.fdaSectionTxt}>{drugInfo.dosage}</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* No FDA data found */}
+              {!loadingDrug && form.medication && !drugInfo && (
+                <View style={s.fdaNotFound}>
+                  <Text style={s.fdaNotFoundTxt}>ℹ️ No FDA data found for this medication</Text>
+                </View>
+              )}
 
               {/* Dosage */}
               <Text style={[s.selectLabel, { marginTop: 16 }]}>Dosage *</Text>
@@ -324,7 +398,7 @@ export default function PrescriptionsCRUD() {
                 error={errors.quantity}
               />
 
-              {/* Refill Date with Quick Buttons */}
+              {/* Refill Date */}
               <Text style={s.selectLabel}>Refill Date *</Text>
               <View style={s.dateInputBox}>
                 <TextInput
@@ -356,7 +430,7 @@ export default function PrescriptionsCRUD() {
               </View>
               {errors.refill_on && <Text style={s.errorTxt}>⚠ {errors.refill_on}</Text>}
 
-              {/* Refill Schedule */}
+              {/* Schedule */}
               <Text style={s.selectLabel}>Refill Schedule</Text>
               <View style={s.optionsGrid}>
                 {SCHEDULES.map(sched => (
@@ -376,7 +450,7 @@ export default function PrescriptionsCRUD() {
               <View style={s.notesInputBox}>
                 <TextInput
                   style={s.notesInput}
-                  placeholder="e.g. Take with food, avoid alcohol, monitor blood pressure..."
+                  placeholder="e.g. Take with food, avoid alcohol..."
                   placeholderTextColor={N.stone}
                   value={form.notes}
                   onChangeText={t => setForm({ ...form, notes: t })}
@@ -387,11 +461,7 @@ export default function PrescriptionsCRUD() {
 
               <View style={s.modalActions}>
                 <Button title="Cancel" variant="secondary" onPress={() => setModalVisible(false)} />
-                <Button
-                  title={editingId ? 'Save Changes' : '💊 Prescribe'}
-                  onPress={handleSave}
-                  loading={saving}
-                />
+                <Button title={editingId ? 'Save Changes' : '💊 Prescribe'} onPress={handleSave} loading={saving} />
               </View>
               <View style={{ height: 32 }} />
             </View>
@@ -413,8 +483,6 @@ const s = StyleSheet.create({
   banner: { backgroundColor: N.moss, paddingHorizontal: 24, paddingVertical: 10, paddingBottom: 16 },
   bannerTxt: { color: 'rgba(255,255,255,0.7)', fontFamily: 'Nunito_400Regular', fontSize: 12 },
   scroll: { flex: 1 },
-
-  // Cards
   card: { backgroundColor: N.white, borderRadius: 14, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: N.parchment },
   cardAlert: { borderColor: '#FDE68A', backgroundColor: '#FFFDF5' },
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
@@ -423,7 +491,7 @@ const s = StyleSheet.create({
   cardInfo: { flex: 1 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 },
   cardTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest },
-  alertBadge: { backgroundColor: '#FEF9C3', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 20 },
+  alertBadge: { backgroundColor: N.warningLight, paddingVertical: 2, paddingHorizontal: 8, borderRadius: 20 },
   alertBadgeTxt: { color: N.warning, fontFamily: 'Nunito_600SemiBold', fontSize: 10 },
   cardSub: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, marginBottom: 4 },
   noteBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: N.mist, borderRadius: 8, padding: 8, marginTop: 6 },
@@ -434,49 +502,49 @@ const s = StyleSheet.create({
   editTxt: { fontSize: 15 },
   deleteBtn: { padding: 9, backgroundColor: N.dangerLight, borderRadius: 10 },
   deleteTxt: { fontSize: 15 },
-
-  // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(26,60,46,0.5)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(24,56,44,0.5)', justifyContent: 'flex-end' },
   modalSheet: { backgroundColor: N.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
   modalHandle: { width: 40, height: 4, backgroundColor: N.parchment, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
   modalTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', color: N.forest, marginBottom: 4 },
   modalSub: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.stone, marginBottom: 16 },
   modalDivider: { height: 1, backgroundColor: N.parchment, marginBottom: 20 },
   selectLabel: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: N.forest, marginBottom: 10 },
-  errorTxt: { fontSize: 12, color: '#B45309', fontFamily: 'Nunito_400Regular', marginTop: 4, marginBottom: 8 },
-
-  // Medicine search
+  errorTxt: { fontSize: 12, color: N.danger, fontFamily: 'Nunito_400Regular', marginTop: 4, marginBottom: 8 },
   medSearchBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: N.cream, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1.5, borderColor: N.parchment, marginBottom: 4 },
   medSearchIco: { fontSize: 16 },
   medSearchInp: { flex: 1, fontSize: 14, fontFamily: 'Nunito_400Regular', color: N.forest },
-
-  // Suggestions dropdown
   suggestionsBox: { backgroundColor: N.white, borderRadius: 12, borderWidth: 1, borderColor: N.parchment, marginBottom: 12, overflow: 'hidden' },
   suggestionItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: 1, borderBottomColor: N.parchment },
-  suggestionItemActive: { backgroundColor: N.mist },
   suggestionIcon: { fontSize: 16 },
-  suggestionTxt: { flex: 1, fontSize: 14, fontFamily: 'Nunito_600SemiBold', color: N.stone },
-  suggestionTxtActive: { color: N.forest },
-
-  // Selected badge
+  suggestionTxt: { flex: 1, fontSize: 14, fontFamily: 'Nunito_600SemiBold', color: N.forest },
   selectedMedBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: N.mist, borderRadius: 10, padding: 10, marginBottom: 4 },
   selectedMedIcon: { fontSize: 16 },
-  selectedMedTxt: { fontSize: 13, fontFamily: 'Nunito_700Bold', color: N.moss },
+  selectedMedTxt: { flex: 1, fontSize: 13, fontFamily: 'Nunito_700Bold', color: N.moss },
 
-  // Date picker
+  // FDA styles
+  fdaLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: N.accentLight, borderRadius: 10, marginBottom: 12 },
+  fdaLoadingTxt: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.accent },
+  fdaCard: { backgroundColor: '#FAFBFF', borderRadius: 14, borderWidth: 1.5, borderColor: N.accentLight, marginBottom: 16, overflow: 'hidden' },
+  fdaHeader: { backgroundColor: N.accentLight, padding: 14 },
+  fdaBadge: { fontSize: 11, fontFamily: 'Nunito_700Bold', color: N.accent, letterSpacing: 1, marginBottom: 4 },
+  fdaTitle: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
+  fdaGeneric: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, marginTop: 2 },
+  fdaManuf: { fontSize: 11, fontFamily: 'Nunito_400Regular', color: N.stone, marginTop: 1 },
+  fdaSection: { padding: 12, borderBottomWidth: 1, borderBottomColor: N.accentLight },
+  fdaSectionTitle: { fontSize: 12, fontFamily: 'Nunito_700Bold', color: N.moss, marginBottom: 4 },
+  fdaSectionTxt: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, lineHeight: 18 },
+  fdaNotFound: { backgroundColor: N.mist, borderRadius: 10, padding: 12, marginBottom: 12 },
+  fdaNotFoundTxt: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone },
+
   dateInputBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
   dateInput: { flex: 1, backgroundColor: N.cream, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, fontFamily: 'Nunito_400Regular', color: N.forest, borderWidth: 1.5, borderColor: N.parchment, minWidth: 130 },
   dateQuickBtn: { backgroundColor: N.mist, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: N.parchment },
   dateQuickTxt: { color: N.moss, fontFamily: 'Nunito_600SemiBold', fontSize: 12 },
-
-  // Options
   optionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
   optionBtn: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: N.parchment, backgroundColor: N.cream },
   optionBtnActive: { backgroundColor: N.moss, borderColor: N.moss },
   optionTxt: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: N.stone },
   optionTxtActive: { color: N.white },
-
-  // Notes
   notesInputBox: { backgroundColor: N.cream, borderRadius: 12, borderWidth: 1.5, borderColor: N.parchment, padding: 12, marginBottom: 20 },
   notesInput: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.forest, minHeight: 80, textAlignVertical: 'top' },
   modalActions: { flexDirection: 'row', gap: 12, marginTop: 4 },
