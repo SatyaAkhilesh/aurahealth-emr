@@ -1,371 +1,390 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, TextInput, Alert, useWindowDimensions
+  TouchableOpacity, Alert
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import Avatar from '@/components/Avatar'
+import Button from '@/components/Button'
+import Input from '@/components/Input'
 import LoadingSpinner from '@/components/LoadingSpinner'
-import EmptyState from '@/components/EmptyState'
-
-type Patient = { id: string; name: string; email: string; created_at: string }
+import Card from '@/components/Card'
+import { exportAppointmentsPdf } from '@/lib/pdf/exportAppointmentsPdf'
+import { exportPrescriptionsPdf } from '@/lib/pdf/exportPrescriptionsPdf'
+import { exportPatientSummaryPdf } from '@/lib/pdf/exportPatientSummaryPdf'
 
 const N = {
-  forest:    '#1A3C2E',
-  moss:      '#2D5A3D',
-  sage:      '#4A7C59',
-  mint:      '#7FB069',
-  leaf:      '#A8C97F',
-  mist:      '#E8F0E4',
-  cream:     '#FAF7F2',
-  bark:      '#5C4A32',
-  stone:     '#8A8A7A',
-  white:     '#FFFFFF',
-  sky:       '#0891B2',
-  parchment: '#EDE8DF',
+  forest:      '#1A3C2E',
+  moss:        '#2D5A3D',
+  sage:        '#4A7C59',
+  mint:        '#7FB069',
+  leaf:        '#A8C97F',
+  mist:        '#E8F0E4',
+  cream:       '#FAF7F2',
+  stone:       '#8A8A7A',
+  white:       '#FFFFFF',
+  parchment:   '#EDE8DF',
+  dangerLight: '#FEF3C7',
 }
 
-export default function AdminDashboard() {
+type Patient = { id: string; name: string; email: string; created_at: string }
+type Appointment = { id: string; provider: string; datetime: string; repeat: string }
+type Prescription = { id: string; medication: string; dosage: string; quantity: number; refill_on: string; refill_schedule: string }
+
+export default function PatientDetail() {
   const router = useRouter()
-  const { width } = useWindowDimensions()
-  const isMobile = width < 768
-  const isTablet = width >= 768 && width < 1024
-
-  const [patients, setPatients] = useState<Patient[]>([])
-  const [filtered, setFiltered] = useState<Patient[]>([])
-  const [search, setSearch] = useState('')
+  const { id } = useLocalSearchParams()
+  const [patient, setPatient] = useState<Patient | null>(null)
+  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([])
   const [loading, setLoading] = useState(true)
-  const [totalAppt, setTotalAppt] = useState(0)
-  const [totalPres, setTotalPres] = useState(0)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<'info' | 'appointments' | 'prescriptions'>('info')
+  const [editMode, setEditMode] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  useEffect(() => { fetchAll() }, [])
-
-  useEffect(() => {
-    setFiltered(search.trim() === '' ? patients :
-      patients.filter(p =>
-        p.name?.toLowerCase().includes(search.toLowerCase()) ||
-        p.email?.toLowerCase().includes(search.toLowerCase())
-      ))
-  }, [search, patients])
+  useEffect(() => { fetchAll() }, [id])
 
   const fetchAll = async () => {
     setLoading(true)
-    const [p, a, r] = await Promise.all([
-      supabase.from('patients').select('*').order('created_at', { ascending: false }),
-      supabase.from('appointments').select('id', { count: 'exact' }),
-      supabase.from('prescriptions').select('id', { count: 'exact' }),
+    const [patientRes, apptRes, presRes] = await Promise.all([
+      supabase.from('patients').select('*').eq('id', id).single(),
+      supabase.from('appointments').select('*').eq('patient_id', id).order('datetime'),
+      supabase.from('prescriptions').select('*').eq('patient_id', id),
     ])
-    if (p.error) Alert.alert('Error', 'Failed to load patients')
-    else { setPatients(p.data || []); setFiltered(p.data || []) }
-    setTotalAppt(a.count || 0)
-    setTotalPres(r.count || 0)
+    if (patientRes.data) {
+      setPatient(patientRes.data)
+      setEditName(patientRes.data.name)
+      setEditEmail(patientRes.data.email)
+    }
+    setAppointments(apptRes.data || [])
+    setPrescriptions(presRes.data || [])
     setLoading(false)
   }
 
-  const Sidebar = () => (
-    <View style={[s.sidebar, isMobile && s.sidebarMobile]}>
-      <View style={s.brand}>
-        <View style={s.brandIcon}>
-          <Text style={s.brandIconTxt}>✦</Text>
-        </View>
-        {!isMobile && (
-          <View>
-            <Text style={s.brandName}>AuraHealth</Text>
-            <Text style={s.brandSub}>Care Platform</Text>
-          </View>
-        )}
-      </View>
+  const handleSave = async () => {
+    setSaving(true)
+    const { error } = await supabase
+      .from('patients')
+      .update({ name: editName, email: editEmail })
+      .eq('id', id)
+    if (error) Alert.alert('Error ❌', 'Failed to update patient')
+    else {
+      Alert.alert('Success 🌿', 'Patient updated!')
+      setPatient(prev => prev ? { ...prev, name: editName, email: editEmail } : prev)
+      setEditMode(false)
+    }
+    setSaving(false)
+  }
 
-      <View style={s.divider} />
+  const handleDeleteAppointment = (apptId: string) => {
+    Alert.alert('Delete Appointment', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          const { error } = await supabase.from('appointments').delete().eq('id', apptId)
+          if (error) Alert.alert('Error ❌', 'Failed to delete')
+          else {
+            Alert.alert('Deleted 🌿', 'Appointment removed!')
+            setAppointments(prev => prev.filter(a => a.id !== apptId))
+          }
+        }
+      }
+    ])
+  }
 
-      {[
-        { icon: '◈', label: 'Overview', route: '/admin' },
-        { icon: '◉', label: 'Patients', route: '/admin', active: true },
-        { icon: '◷', label: 'Appointments', route: '/admin' },
-        { icon: '◈', label: 'Prescriptions', route: '/admin' },
-      ].map(item => (
-        <TouchableOpacity
-          key={item.label}
-          style={[s.navItem, item.active && s.navItemActive]}
-          onPress={() => router.push(item.route as any)}
-          activeOpacity={0.7}
-        >
-          <Text style={[s.navIcon, item.active && s.navIconActive]}>{item.icon}</Text>
-          {!isMobile && <Text style={[s.navLabel, item.active && s.navLabelActive]}>{item.label}</Text>}
-        </TouchableOpacity>
-      ))}
+  const handleDeletePrescription = (presId: string) => {
+    Alert.alert('Delete Prescription', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          const { error } = await supabase.from('prescriptions').delete().eq('id', presId)
+          if (error) Alert.alert('Error ❌', 'Failed to delete')
+          else {
+            Alert.alert('Deleted 🌿', 'Prescription removed!')
+            setPrescriptions(prev => prev.filter(p => p.id !== presId))
+          }
+        }
+      }
+    ])
+  }
 
-      <View style={s.sideFooter}>
-        <View style={s.adminCard}>
-          <View style={s.adminAv}>
-            <Text style={s.adminAvTxt}>AD</Text>
-          </View>
-          {!isMobile && (
-            <View>
-              <Text style={s.adminName}>Admin</Text>
-              <Text style={s.adminRole}>Super Admin</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </View>
-  )
+  const formatDateTime = (dt: string) => {
+    if (!dt) return '—'
+    return new Date(dt).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true
+    })
+  }
+
+  if (loading) return <LoadingSpinner message="Loading patient..." />
 
   return (
     <View style={s.root}>
-      <Sidebar />
 
-      <View style={s.main}>
-        {/* Top Bar */}
-        <View style={s.topbar}>
-          <View>
-            <Text style={s.topGreet}>Good morning 🌤</Text>
-            <Text style={[s.topTitle, isMobile && { fontSize: 16 }]}>Patient Directory</Text>
-          </View>
-          <TouchableOpacity
-            style={s.newBtn}
-            onPress={() => router.push('/admin/new')}
-            activeOpacity={0.8}
-          >
-            <Text style={s.newBtnTxt}>{isMobile ? '＋' : '＋ New Patient'}</Text>
-          </TouchableOpacity>
+      {/* Header */}
+      <View style={s.header}>
+        <TouchableOpacity onPress={() => router.push('/admin')} style={s.backBtn} activeOpacity={0.7}>
+          <Text style={s.backTxt}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>Patient Record</Text>
+        <View style={{ width: 60 }} />
+      </View>
+
+      {/* Hero */}
+      <View style={s.hero}>
+        <Avatar name={patient?.name || ''} size={64} />
+        <View style={s.heroInfo}>
+          <Text style={s.heroEye}>PATIENT</Text>
+          <Text style={s.heroName}>{patient?.name}</Text>
+          <Text style={s.heroEmail}>{patient?.email}</Text>
         </View>
+        <View style={s.heroBadge}>
+          <View style={s.heroBadgeDot} />
+          <Text style={s.heroBadgeTxt}>Active</Text>
+        </View>
+      </View>
 
-        <ScrollView
-          style={s.scroll}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 60 }}
-        >
-          {/* Hero */}
-          <View style={[s.hero, isMobile && s.heroMobile]}>
-            <View style={s.heroLeft}>
-              <Text style={s.heroEye}>PATIENT OVERVIEW</Text>
-              <Text style={[s.heroTitle, isMobile && { fontSize: 18, lineHeight: 26 }]}>
-                {patients.length} Patients{'\n'}Under Care 🌿
-              </Text>
-              <Text style={s.heroSub}>All records are up to date and synced.</Text>
-            </View>
-            {!isMobile && <Text style={s.heroEmoji}>🌱</Text>}
-          </View>
+      {/* Tabs */}
+      <View style={s.tabs}>
+        {([
+          { key: 'info', label: '👤 Info' },
+          { key: 'appointments', label: `📅 Appointments (${appointments.length})` },
+          { key: 'prescriptions', label: `💊 Prescriptions (${prescriptions.length})` },
+        ] as const).map(tab => (
+          <TouchableOpacity
+            key={tab.key}
+            style={[s.tab, activeTab === tab.key && s.tabActive]}
+            onPress={() => setActiveTab(tab.key)}
+            activeOpacity={0.7}
+          >
+            <Text style={[s.tabTxt, activeTab === tab.key && s.tabTxtActive]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-          {/* Stats */}
-          <View style={[s.statsRow, isMobile && s.statsRowMobile]}>
-            {[
-              { icon: '🧑‍⚕️', val: patients.length, lbl: 'Patients', color: N.moss, bg: N.mist },
-              { icon: '📋', val: totalAppt, lbl: 'Appointments', color: N.sky, bg: '#E0F4F8' },
-              { icon: '💊', val: totalPres, lbl: 'Prescriptions', color: N.sage, bg: '#EAF4E8' },
-              { icon: '🌟', val: patients.length, lbl: 'Active', color: '#D97706', bg: '#FEF3C7' },
-            ].map((st, i) => (
-              <View key={i} style={[s.statCard, isMobile && s.statCardMobile]}>
-                <View style={[s.statIconBox, { backgroundColor: st.bg }]}>
-                  <Text style={s.statIconTxt}>{st.icon}</Text>
-                </View>
-                <Text style={[s.statVal, { color: st.color }]}>{st.val}</Text>
-                <Text style={s.statLbl}>{st.lbl}</Text>
-              </View>
-            ))}
-          </View>
+      <ScrollView
+        style={s.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 20, paddingBottom: 60 }}
+      >
 
-          {/* Table */}
-          <View style={s.tableWrap}>
-            <View style={s.tableTop}>
-              <View>
-                <Text style={s.tableTitle}>All Patients</Text>
-                <Text style={s.tableSub}>{filtered.length} records found</Text>
-              </View>
-              <View style={[s.searchBox, isMobile && { minWidth: 140 }]}>
-                <Text style={s.searchIco}>🔍</Text>
-                <TextInput
-                  style={s.searchInp}
-                  placeholder="Search..."
-                  placeholderTextColor={N.stone}
-                  value={search}
-                  onChangeText={setSearch}
-                />
-                {search.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                    <Text style={s.clearX}>✕</Text>
+        {/* INFO TAB */}
+        {activeTab === 'info' && (
+          <View>
+            <Card>
+              <View style={s.infoHeader}>
+                <Text style={s.cardTitle}>Patient Information</Text>
+                {!editMode && (
+                  <TouchableOpacity style={s.editBtn} onPress={() => setEditMode(true)} activeOpacity={0.7}>
+                    <Text style={s.editBtnTxt}>✏️ Edit</Text>
                   </TouchableOpacity>
                 )}
               </View>
+
+              {editMode ? (
+                <>
+                  <Input label="Full Name" value={editName} onChangeText={setEditName} />
+                  <Input label="Email" value={editEmail} onChangeText={setEditEmail} keyboardType="email-address" autoCapitalize="none" />
+                  <View style={s.editActions}>
+                    <Button title="Cancel" variant="secondary" onPress={() => setEditMode(false)} />
+                    <Button title="Save Changes" onPress={handleSave} loading={saving} />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={s.infoRow}>
+                    <Text style={s.infoLabel}>Full Name</Text>
+                    <Text style={s.infoValue}>{patient?.name}</Text>
+                  </View>
+                  <View style={s.infoRow}>
+                    <Text style={s.infoLabel}>Email</Text>
+                    <Text style={s.infoValue}>{patient?.email}</Text>
+                  </View>
+                  <View style={s.infoRow}>
+                    <Text style={s.infoLabel}>Member Since</Text>
+                    <Text style={s.infoValue}>
+                      {patient?.created_at ? new Date(patient.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
+                    </Text>
+                  </View>
+                  <View style={[s.infoRow, { borderBottomWidth: 0 }]}>
+                    <Text style={s.infoLabel}>Patient ID</Text>
+                    <Text style={s.infoValue}>#{patient?.id.slice(0, 8).toUpperCase()}</Text>
+                  </View>
+                </>
+              )}
+            </Card>
+
+            {/* PDF Button */}
+            <TouchableOpacity
+              style={s.pdfBtn}
+              onPress={() => exportPatientSummaryPdf(patient, appointments, prescriptions)}
+              activeOpacity={0.8}
+            >
+              <Text style={s.pdfBtnTxt}>⬇️  Download Patient Summary PDF</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* APPOINTMENTS TAB */}
+        {activeTab === 'appointments' && (
+          <View>
+            <View style={s.tabActionRow}>
+              <Text style={s.sectionTitle}>All Appointments</Text>
+              <TouchableOpacity
+                style={s.manageBtn}
+                onPress={() => router.push(`/admin/${id}/appointments`)}
+                activeOpacity={0.7}
+              >
+                <Text style={s.manageBtnTxt}>＋ Manage</Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Desktop Table */}
-            {!isMobile && (
-              <View style={s.colHead}>
-                <Text style={[s.colTxt, { flex: 3 }]}>PATIENT</Text>
-                <Text style={[s.colTxt, { flex: 2.5 }]}>EMAIL</Text>
-                <Text style={[s.colTxt, { flex: 1 }]}>STATUS</Text>
-                <Text style={[s.colTxt, { flex: 1.2 }]}>JOINED</Text>
-                <Text style={[s.colTxt, { flex: 0.8, textAlign: 'right' }]}>ACTION</Text>
-              </View>
-            )}
+            {/* PDF Button */}
+            <TouchableOpacity
+              style={s.pdfBtn}
+              onPress={() => exportAppointmentsPdf(patient?.name || '', appointments)}
+              activeOpacity={0.8}
+            >
+              <Text style={s.pdfBtnTxt}>⬇️  Download Appointments PDF</Text>
+            </TouchableOpacity>
 
-            {loading ? (
-              <View style={{ padding: 32 }}>
-                <LoadingSpinner message="Loading patients..." />
+            {appointments.length === 0 ? (
+              <View style={s.emptyCard}>
+                <Text style={s.emptyIcon}>📅</Text>
+                <Text style={s.emptyTxt}>No appointments yet</Text>
+                <Text style={s.emptySub}>Add the first appointment for this patient</Text>
               </View>
-            ) : filtered.length === 0 ? (
-              <View style={{ padding: 32 }}>
-                <EmptyState icon="🌱" title="No patients yet" message="Add your first patient" />
-              </View>
-            ) : filtered.map((pt, idx) => (
-              <TouchableOpacity
-                key={pt.id}
-                style={[
-                  isMobile ? s.cardRow : s.row,
-                  !isMobile && idx % 2 !== 0 && s.rowAlt
-                ]}
-                onPress={() => router.push(`/admin/${pt.id}`)}
-                activeOpacity={0.65}
-              >
-                {isMobile ? (
-                  // Mobile card layout
-                  <View style={s.mobileCard}>
-                    <View style={s.mobileCardLeft}>
-                      <Avatar name={pt.name || 'U'} size={44} />
-                    </View>
-                    <View style={s.mobileCardRight}>
-                      <Text style={s.rowName}>{pt.name}</Text>
-                      <Text style={s.rowEmail}>{pt.email}</Text>
-                      <View style={s.mobileCardBottom}>
-                        <View style={s.badge}>
-                          <View style={s.badgeDot} />
-                          <Text style={s.badgeTxt}>Active</Text>
-                        </View>
-                        <Text style={s.rowDate}>
-                          {new Date(pt.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={s.mobileArrow}>→</Text>
+            ) : appointments.map(appt => (
+              <View key={appt.id} style={s.recordCard}>
+                <View style={s.recordLeft}>
+                  <View style={s.recordIconBox}>
+                    <Text style={s.recordIcon}>📅</Text>
                   </View>
-                ) : (
-                  // Desktop table layout
-                  <>
-                    <View style={[s.cell, { flex: 3, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
-                      <Avatar name={pt.name || 'U'} size={36} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.rowName} numberOfLines={1}>{pt.name}</Text>
-                        <Text style={s.rowId}>#{pt.id.slice(0, 6).toUpperCase()}</Text>
-                      </View>
+                  <View style={s.recordInfo}>
+                    <Text style={s.recordTitle}>{appt.provider}</Text>
+                    <Text style={s.recordSub}>{formatDateTime(appt.datetime)}</Text>
+                    <View style={s.repeatBadge}>
+                      <Text style={s.repeatTxt}>🔄 {appt.repeat}</Text>
                     </View>
-                    <View style={[s.cell, { flex: 2.5 }]}>
-                      <Text style={s.rowEmail} numberOfLines={1}>{pt.email}</Text>
-                    </View>
-                    <View style={[s.cell, { flex: 1 }]}>
-                      <View style={s.badge}>
-                        <View style={s.badgeDot} />
-                        <Text style={s.badgeTxt}>Active</Text>
-                      </View>
-                    </View>
-                    <View style={[s.cell, { flex: 1.2 }]}>
-                      <Text style={s.rowDate}>
-                        {new Date(pt.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </Text>
-                    </View>
-                    <View style={[s.cell, { flex: 0.8, alignItems: 'flex-end' }]}>
-                      <View style={s.viewBtn}>
-                        <Text style={s.viewTxt}>View →</Text>
-                      </View>
-                    </View>
-                  </>
-                )}
-              </TouchableOpacity>
+                  </View>
+                </View>
+                <TouchableOpacity style={s.deleteBtn} onPress={() => handleDeleteAppointment(appt.id)} activeOpacity={0.7}>
+                  <Text style={s.deleteTxt}>🗑</Text>
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
-        </ScrollView>
-      </View>
+        )}
+
+        {/* PRESCRIPTIONS TAB */}
+        {activeTab === 'prescriptions' && (
+          <View>
+            <View style={s.tabActionRow}>
+              <Text style={s.sectionTitle}>All Prescriptions</Text>
+              <TouchableOpacity
+                style={s.manageBtn}
+                onPress={() => router.push(`/admin/${id}/prescriptions`)}
+                activeOpacity={0.7}
+              >
+                <Text style={s.manageBtnTxt}>＋ Manage</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* PDF Button */}
+            <TouchableOpacity
+              style={s.pdfBtn}
+              onPress={() => exportPrescriptionsPdf(patient?.name || '', prescriptions)}
+              activeOpacity={0.8}
+            >
+              <Text style={s.pdfBtnTxt}>⬇️  Download Prescriptions PDF</Text>
+            </TouchableOpacity>
+
+            {prescriptions.length === 0 ? (
+              <View style={s.emptyCard}>
+                <Text style={s.emptyIcon}>💊</Text>
+                <Text style={s.emptyTxt}>No prescriptions yet</Text>
+                <Text style={s.emptySub}>Add the first prescription for this patient</Text>
+              </View>
+            ) : prescriptions.map(pres => (
+              <View key={pres.id} style={s.recordCard}>
+                <View style={s.recordLeft}>
+                  <View style={[s.recordIconBox, { backgroundColor: '#E8F4F8' }]}>
+                    <Text style={s.recordIcon}>💊</Text>
+                  </View>
+                  <View style={s.recordInfo}>
+                    <Text style={s.recordTitle}>{pres.medication}</Text>
+                    <Text style={s.recordSub}>{pres.dosage} · Qty: {pres.quantity}</Text>
+                    <Text style={s.recordSub}>Refill: {pres.refill_on}</Text>
+                    <View style={s.repeatBadge}>
+                      <Text style={s.repeatTxt}>🔄 {pres.refill_schedule}</Text>
+                    </View>
+                  </View>
+                </View>
+                <TouchableOpacity style={s.deleteBtn} onPress={() => handleDeletePrescription(pres.id)} activeOpacity={0.7}>
+                  <Text style={s.deleteTxt}>🗑</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
+      </ScrollView>
     </View>
   )
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, flexDirection: 'row', backgroundColor: N.cream },
-
-  // Sidebar
-  sidebar: { width: 220, backgroundColor: N.forest, paddingTop: 32, paddingHorizontal: 16 },
-  sidebarMobile: { width: 64, paddingHorizontal: 10 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 24 },
-  brandIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: N.sage, alignItems: 'center', justifyContent: 'center' },
-  brandIconTxt: { color: N.white, fontSize: 16 },
-  brandName: { color: N.white, fontFamily: 'Nunito_800ExtraBold', fontSize: 15 },
-  brandSub: { color: 'rgba(255,255,255,0.4)', fontFamily: 'Nunito_400Regular', fontSize: 10 },
-  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginBottom: 18 },
-  navItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderRadius: 10, marginBottom: 2 },
-  navItemActive: { backgroundColor: N.moss },
-  navIcon: { fontSize: 14, color: 'rgba(255,255,255,0.3)', width: 20, textAlign: 'center' },
-  navIconActive: { color: N.leaf },
-  navLabel: { color: 'rgba(255,255,255,0.4)', fontFamily: 'Nunito_600SemiBold', fontSize: 13 },
-  navLabelActive: { color: N.white },
-  sideFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 14 },
-  adminCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: 10 },
-  adminAv: { width: 30, height: 30, borderRadius: 8, backgroundColor: N.sage, alignItems: 'center', justifyContent: 'center' },
-  adminAvTxt: { color: N.white, fontFamily: 'Nunito_700Bold', fontSize: 11 },
-  adminName: { color: N.white, fontFamily: 'Nunito_600SemiBold', fontSize: 12 },
-  adminRole: { color: 'rgba(255,255,255,0.4)', fontFamily: 'Nunito_400Regular', fontSize: 10 },
-
-  // Main
-  main: { flex: 1 },
-  topbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, backgroundColor: N.white, borderBottomWidth: 1, borderBottomColor: N.parchment },
-  topGreet: { fontSize: 11, fontFamily: 'Nunito_400Regular', color: N.stone },
-  topTitle: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
-  newBtn: { backgroundColor: N.moss, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 10 },
-  newBtnTxt: { color: N.white, fontFamily: 'Nunito_700Bold', fontSize: 13 },
+  root: { flex: 1, backgroundColor: N.cream },
+  header: { backgroundColor: N.forest, paddingHorizontal: 24, paddingVertical: 18, paddingTop: 48, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  backBtn: { paddingVertical: 4, paddingHorizontal: 8 },
+  backTxt: { color: N.leaf, fontFamily: 'Nunito_600SemiBold', fontSize: 14 },
+  headerTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', color: N.white },
+  hero: { backgroundColor: N.moss, paddingHorizontal: 24, paddingVertical: 20, paddingBottom: 24, flexDirection: 'row', alignItems: 'center', gap: 16 },
+  heroInfo: { flex: 1 },
+  heroEye: { color: N.leaf, fontFamily: 'Nunito_700Bold', fontSize: 10, letterSpacing: 2, marginBottom: 2 },
+  heroName: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', color: N.white },
+  heroEmail: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: 'rgba(255,255,255,0.65)', marginTop: 2 },
+  heroBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.12)', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 },
+  heroBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: N.mint },
+  heroBadgeTxt: { color: N.white, fontFamily: 'Nunito_600SemiBold', fontSize: 12 },
+  tabs: { flexDirection: 'row', backgroundColor: N.white, borderBottomWidth: 1, borderBottomColor: N.parchment },
+  tab: { flex: 1, paddingVertical: 14, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  tabActive: { borderBottomColor: N.moss },
+  tabTxt: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', color: N.stone },
+  tabTxtActive: { color: N.moss },
   scroll: { flex: 1 },
-
-  // Hero
-  hero: { margin: 20, marginBottom: 14, backgroundColor: N.moss, borderRadius: 18, padding: 24, flexDirection: 'row', alignItems: 'center' },
-  heroMobile: { padding: 20 },
-  heroLeft: { flex: 1 },
-  heroEye: { color: N.leaf, fontFamily: 'Nunito_700Bold', fontSize: 10, letterSpacing: 2, marginBottom: 6 },
-  heroTitle: { color: N.white, fontFamily: 'Nunito_800ExtraBold', fontSize: 22, lineHeight: 30 },
-  heroSub: { color: 'rgba(255,255,255,0.55)', fontFamily: 'Nunito_400Regular', fontSize: 12, marginTop: 6 },
-  heroEmoji: { fontSize: 60 },
-
-  // Stats
-  statsRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginBottom: 14, flexWrap: 'nowrap' },
-  statsRowMobile: { flexWrap: 'wrap' },
-  statCard: { flex: 1, backgroundColor: N.white, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: N.parchment },
-  statCardMobile: { minWidth: '45%' },
-  statIconBox: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  statIconTxt: { fontSize: 17 },
-  statVal: { fontSize: 26, fontFamily: 'Nunito_800ExtraBold' },
-  statLbl: { fontSize: 11, fontFamily: 'Nunito_600SemiBold', color: N.stone, marginTop: 2 },
-
-  // Table
-  tableWrap: { marginHorizontal: 20, backgroundColor: N.white, borderRadius: 18, borderWidth: 1, borderColor: N.parchment, overflow: 'hidden' },
-  tableTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1, borderBottomColor: N.parchment, flexWrap: 'wrap', gap: 10 },
-  tableTitle: { fontSize: 15, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
-  tableSub: { fontSize: 11, fontFamily: 'Nunito_400Regular', color: N.stone, marginTop: 2 },
-  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: N.cream, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: N.parchment, minWidth: 200 },
-  searchIco: { fontSize: 13 },
-  searchInp: { flex: 1, fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.forest, minWidth: 80 },
-  clearX: { fontSize: 12, color: N.stone },
-  colHead: { flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 10, backgroundColor: N.mist, borderBottomWidth: 1, borderBottomColor: N.parchment },
-  colTxt: { fontFamily: 'Nunito_700Bold', fontSize: 11, color: N.sage, letterSpacing: 0.6 },
-
-  // Desktop rows
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: '#F8F5F0' },
-  rowAlt: { backgroundColor: '#FDFAF7' },
-  cell: { justifyContent: 'center' },
-  rowName: { fontFamily: 'Nunito_700Bold', fontSize: 14, color: N.forest },
-  rowId: { fontFamily: 'Nunito_400Regular', fontSize: 11, color: N.stone, marginTop: 1 },
-  rowEmail: { fontFamily: 'Nunito_400Regular', fontSize: 13, color: N.stone },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#ECFDF5', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#C8DCC0' },
-  badgeDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: N.mint },
-  badgeTxt: { fontFamily: 'Nunito_600SemiBold', fontSize: 11, color: N.moss },
-  rowDate: { fontFamily: 'Nunito_400Regular', fontSize: 12, color: N.stone },
-  viewBtn: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8, backgroundColor: N.mist, borderWidth: 1, borderColor: '#C8DCC0' },
-  viewTxt: { fontFamily: 'Nunito_700Bold', fontSize: 12, color: N.moss },
-
-  // Mobile card rows
-  cardRow: { borderBottomWidth: 1, borderBottomColor: '#F8F5F0', padding: 14 },
-  mobileCard: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  mobileCardLeft: {},
-  mobileCardRight: { flex: 1 },
-  mobileCardBottom: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
-  mobileArrow: { fontSize: 18, color: N.stone },
+  cardTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest },
+  infoHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  editBtn: { backgroundColor: N.mist, paddingVertical: 6, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: N.parchment },
+  editBtnTxt: { color: N.moss, fontFamily: 'Nunito_600SemiBold', fontSize: 13 },
+  editActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: N.parchment },
+  infoLabel: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: N.stone },
+  infoValue: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: N.forest },
+  pdfBtn: { backgroundColor: N.mist, borderWidth: 1, borderColor: N.parchment, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center', marginBottom: 16 },
+  pdfBtnTxt: { color: N.moss, fontFamily: 'Nunito_700Bold', fontSize: 13 },
+  tabActionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
+  manageBtn: { backgroundColor: N.moss, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10 },
+  manageBtnTxt: { color: N.white, fontFamily: 'Nunito_700Bold', fontSize: 13 },
+  emptyCard: { backgroundColor: N.white, borderRadius: 16, padding: 32, alignItems: 'center', borderWidth: 1, borderColor: N.parchment },
+  emptyIcon: { fontSize: 36, marginBottom: 10 },
+  emptyTxt: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest, marginBottom: 4 },
+  emptySub: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.stone, textAlign: 'center' },
+  recordCard: { backgroundColor: N.white, borderRadius: 14, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: N.parchment, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  recordLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, flex: 1 },
+  recordIconBox: { width: 40, height: 40, borderRadius: 12, backgroundColor: N.mist, alignItems: 'center', justifyContent: 'center' },
+  recordIcon: { fontSize: 18 },
+  recordInfo: { flex: 1 },
+  recordTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest, marginBottom: 3 },
+  recordSub: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, marginBottom: 2 },
+  repeatBadge: { backgroundColor: N.mist, paddingVertical: 3, paddingHorizontal: 10, borderRadius: 20, alignSelf: 'flex-start', marginTop: 4 },
+  repeatTxt: { color: N.moss, fontFamily: 'Nunito_600SemiBold', fontSize: 11 },
+  deleteBtn: { padding: 8, backgroundColor: N.dangerLight, borderRadius: 10 },
+  deleteTxt: { fontSize: 16 },
 })
