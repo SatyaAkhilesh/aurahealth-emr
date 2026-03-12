@@ -1,5 +1,5 @@
 import { View, StyleSheet } from 'react-native'
-import { theme } from '../theme'
+import { theme } from '@/theme'
 
 type CardProps = {
   children: React.ReactNode
@@ -18,10 +18,10 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: theme.surface,
     borderRadius: theme.radiusLg,
-    padding: 16,
+    padding: 18,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: theme.border,
     ...theme.shadow,
-  }
+  } as any
 })

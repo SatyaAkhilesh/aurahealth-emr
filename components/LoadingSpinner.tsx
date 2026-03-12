@@ -1,33 +1,16 @@
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native'
-import { theme } from '../theme'
+import { theme } from '@/theme'
 
-type LoadingSpinnerProps = {
-  message?: string
-}
-
-export default function LoadingSpinner({ message = 'Loading...' }: LoadingSpinnerProps) {
+export default function LoadingSpinner({ message = 'Loading...' }: { message?: string }) {
   return (
-    <View style={styles.container}>
-      <ActivityIndicator 
-        size="large" 
-        color={theme.primary} 
-      />
-      <Text style={styles.message}>{message}</Text>
+    <View style={styles.wrap}>
+      <ActivityIndicator size="large" color={theme.primary} />
+      <Text style={styles.msg}>{message}</Text>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
-  },
-  message: {
-    marginTop: 12,
-    fontSize: 14,
-    fontFamily: 'Nunito_400Regular',
-    color: theme.muted,
-  }
+  wrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48 },
+  msg: { marginTop: 12, fontSize: 13, fontFamily: 'Nunito_400Regular', color: theme.muted }
 })

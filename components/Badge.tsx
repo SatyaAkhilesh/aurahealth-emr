@@ -1,8 +1,8 @@
 import { View, Text, StyleSheet } from 'react-native'
-import { theme } from '../theme'
+import { theme } from '@/theme'
 
 type BadgeProps = {
-  status: 'scheduled' | 'completed' | 'cancelled' | 'active' | 'inactive' | 'expired'
+  status: 'scheduled' | 'completed' | 'cancelled' | 'active' | 'inactive' | 'expired' | string
 }
 
 export default function Badge({ status }: BadgeProps) {
@@ -17,12 +17,10 @@ export default function Badge({ status }: BadgeProps) {
       default:          return { bg: theme.border, text: theme.muted }
     }
   }
-
   const colors = getColors()
-
   return (
     <View style={[styles.badge, { backgroundColor: colors.bg }]}>
-      <Text style={[styles.text, { color: colors.text }]}>
+      <Text style={[styles.txt, { color: colors.text }]}>
         {status.charAt(0).toUpperCase() + status.slice(1)}
       </Text>
     </View>
@@ -36,8 +34,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.radiusFull,
     alignSelf: 'flex-start',
   },
-  text: {
+  txt: {
     fontSize: 12,
     fontFamily: 'Nunito_700Bold',
+    letterSpacing: 0.2,
   }
 })
