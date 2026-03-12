@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Alert
+  TouchableOpacity, Alert, Clipboard
 } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
@@ -26,11 +26,53 @@ const N = {
   white:       '#FFFFFF',
   parchment:   '#EDE8DF',
   dangerLight: '#FEF3C7',
+  danger:      '#B45309',
+  warning:     '#D97706',
+  warningLight:'#FEF9C3',
 }
 
 type Patient = { id: string; name: string; email: string; created_at: string }
 type Appointment = { id: string; provider: string; datetime: string; repeat: string }
 type Prescription = { id: string; medication: string; dosage: string; quantity: number; refill_on: string; refill_schedule: string }
+
+// ── Feature 1: Refill Alert Badge ──
+function isRefillSoon(refillDate: string) {
+  if (!refillDate) return false
+  const today = new Date()
+  const refill = new Date(refillDate)
+  const diff = (refill.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+  return diff >= 0 && diff <= 7
+}
+
+// ── Feature 2: Patient Stats Card ──
+function StatsCard({ appointments, prescriptions }: { appointments: Appointment[], prescriptions: Prescription[] }) {
+  const upcomingAppts = appointments.filter(a => new Date(a.datetime) >= new Date()).length
+  const soonRefills = prescriptions.filter(p => isRefillSoon(p.refill_on)).length
+  return (
+    <View style={st.row}>
+      <View style={[st.card, { borderLeftColor: N.moss }]}>
+        <Text style={st.val}>{appointments.length}</Text>
+        <Text style={st.lbl}>Total Appointments</Text>
+        <Text style={st.sub}>{upcomingAppts} upcoming</Text>
+      </View>
+      <View style={[st.card, { borderLeftColor: '#0891B2' }]}>
+        <Text style={st.val}>{prescriptions.length}</Text>
+        <Text style={st.lbl}>Prescriptions</Text>
+        <Text style={[st.sub, soonRefills > 0 && { color: N.warning }]}>
+          {soonRefills > 0 ? `⚠️ ${soonRefills} refill soon` : 'All up to date'}
+        </Text>
+      </View>
+    </View>
+  )
+}
+
+const st = StyleSheet.create({
+  row: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  card: { flex: 1, backgroundColor: N.white, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: N.parchment, borderLeftWidth: 3 },
+  val: { fontSize: 26, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
+  lbl: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', color: N.stone, marginTop: 2 },
+  sub: { fontSize: 11, fontFamily: 'Nunito_400Regular', color: N.sage, marginTop: 3 },
+})
 
 export default function PatientDetail() {
   const router = useRouter()
@@ -44,6 +86,7 @@ export default function PatientDetail() {
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => { fetchAll() }, [id])
 
@@ -62,6 +105,14 @@ export default function PatientDetail() {
     setAppointments(apptRes.data || [])
     setPrescriptions(presRes.data || [])
     setLoading(false)
+  }
+
+  // ── Feature 4: Copy Patient ID ──
+  const handleCopyId = () => {
+    if (!patient) return
+    Clipboard.setString(patient.id)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   const handleSave = async () => {
@@ -140,6 +191,17 @@ export default function PatientDetail() {
           <Text style={s.heroEye}>PATIENT</Text>
           <Text style={s.heroName}>{patient?.name}</Text>
           <Text style={s.heroEmail}>{patient?.email}</Text>
+
+          {/* Feature 4: Copy ID */}
+          <TouchableOpacity
+            style={s.copyIdBtn}
+            onPress={handleCopyId}
+            activeOpacity={0.7}
+          >
+            <Text style={s.copyIdTxt}>
+              {copied ? '✅ Copied!' : `📋 #${patient?.id.slice(0, 8).toUpperCase()}`}
+            </Text>
+          </TouchableOpacity>
         </View>
         <View style={s.heroBadge}>
           <View style={s.heroBadgeDot} />
@@ -173,6 +235,9 @@ export default function PatientDetail() {
         contentContainerStyle={{ padding: 20, paddingBottom: 60 }}
       >
 
+        {/* Feature 2: Stats Card — shown on all tabs */}
+        <StatsCard appointments={appointments} prescriptions={prescriptions} />
+
         {/* INFO TAB */}
         {activeTab === 'info' && (
           <View>
@@ -185,7 +250,6 @@ export default function PatientDetail() {
                   </TouchableOpacity>
                 )}
               </View>
-
               {editMode ? (
                 <>
                   <Input label="Full Name" value={editName} onChangeText={setEditName} />
@@ -197,19 +261,11 @@ export default function PatientDetail() {
                 </>
               ) : (
                 <>
-                  <View style={s.infoRow}>
-                    <Text style={s.infoLabel}>Full Name</Text>
-                    <Text style={s.infoValue}>{patient?.name}</Text>
-                  </View>
-                  <View style={s.infoRow}>
-                    <Text style={s.infoLabel}>Email</Text>
-                    <Text style={s.infoValue}>{patient?.email}</Text>
-                  </View>
+                  <View style={s.infoRow}><Text style={s.infoLabel}>Full Name</Text><Text style={s.infoValue}>{patient?.name}</Text></View>
+                  <View style={s.infoRow}><Text style={s.infoLabel}>Email</Text><Text style={s.infoValue}>{patient?.email}</Text></View>
                   <View style={s.infoRow}>
                     <Text style={s.infoLabel}>Member Since</Text>
-                    <Text style={s.infoValue}>
-                      {patient?.created_at ? new Date(patient.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
-                    </Text>
+                    <Text style={s.infoValue}>{patient?.created_at ? new Date(patient.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}</Text>
                   </View>
                   <View style={[s.infoRow, { borderBottomWidth: 0 }]}>
                     <Text style={s.infoLabel}>Patient ID</Text>
@@ -218,13 +274,7 @@ export default function PatientDetail() {
                 </>
               )}
             </Card>
-
-            {/* PDF Button */}
-            <TouchableOpacity
-              style={s.pdfBtn}
-              onPress={() => exportPatientSummaryPdf(patient, appointments, prescriptions)}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={s.pdfBtn} onPress={() => exportPatientSummaryPdf(patient, appointments, prescriptions)} activeOpacity={0.8}>
               <Text style={s.pdfBtnTxt}>⬇️  Download Patient Summary PDF</Text>
             </TouchableOpacity>
           </View>
@@ -235,24 +285,13 @@ export default function PatientDetail() {
           <View>
             <View style={s.tabActionRow}>
               <Text style={s.sectionTitle}>All Appointments</Text>
-              <TouchableOpacity
-                style={s.manageBtn}
-                onPress={() => router.push(`/admin/${id}/appointments`)}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity style={s.manageBtn} onPress={() => router.push(`/admin/${id}/appointments`)} activeOpacity={0.7}>
                 <Text style={s.manageBtnTxt}>＋ Manage</Text>
               </TouchableOpacity>
             </View>
-
-            {/* PDF Button */}
-            <TouchableOpacity
-              style={s.pdfBtn}
-              onPress={() => exportAppointmentsPdf(patient?.name || '', appointments)}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={s.pdfBtn} onPress={() => exportAppointmentsPdf(patient?.name || '', appointments)} activeOpacity={0.8}>
               <Text style={s.pdfBtnTxt}>⬇️  Download Appointments PDF</Text>
             </TouchableOpacity>
-
             {appointments.length === 0 ? (
               <View style={s.emptyCard}>
                 <Text style={s.emptyIcon}>📅</Text>
@@ -286,23 +325,23 @@ export default function PatientDetail() {
           <View>
             <View style={s.tabActionRow}>
               <Text style={s.sectionTitle}>All Prescriptions</Text>
-              <TouchableOpacity
-                style={s.manageBtn}
-                onPress={() => router.push(`/admin/${id}/prescriptions`)}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity style={s.manageBtn} onPress={() => router.push(`/admin/${id}/prescriptions`)} activeOpacity={0.7}>
                 <Text style={s.manageBtnTxt}>＋ Manage</Text>
               </TouchableOpacity>
             </View>
-
-            {/* PDF Button */}
-            <TouchableOpacity
-              style={s.pdfBtn}
-              onPress={() => exportPrescriptionsPdf(patient?.name || '', prescriptions)}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={s.pdfBtn} onPress={() => exportPrescriptionsPdf(patient?.name || '', prescriptions)} activeOpacity={0.8}>
               <Text style={s.pdfBtnTxt}>⬇️  Download Prescriptions PDF</Text>
             </TouchableOpacity>
+
+            {/* Feature 1: Refill Alert Banner */}
+            {prescriptions.some(p => isRefillSoon(p.refill_on)) && (
+              <View style={s.alertBanner}>
+                <Text style={s.alertIcon}>⚠️</Text>
+                <Text style={s.alertTxt}>
+                  {prescriptions.filter(p => isRefillSoon(p.refill_on)).length} prescription(s) need refill within 7 days!
+                </Text>
+              </View>
+            )}
 
             {prescriptions.length === 0 ? (
               <View style={s.emptyCard}>
@@ -311,15 +350,25 @@ export default function PatientDetail() {
                 <Text style={s.emptySub}>Add the first prescription for this patient</Text>
               </View>
             ) : prescriptions.map(pres => (
-              <View key={pres.id} style={s.recordCard}>
+              <View key={pres.id} style={[s.recordCard, isRefillSoon(pres.refill_on) && s.recordCardAlert]}>
                 <View style={s.recordLeft}>
-                  <View style={[s.recordIconBox, { backgroundColor: '#E8F4F8' }]}>
+                  <View style={[s.recordIconBox, { backgroundColor: isRefillSoon(pres.refill_on) ? N.warningLight : '#E8F4F8' }]}>
                     <Text style={s.recordIcon}>💊</Text>
                   </View>
                   <View style={s.recordInfo}>
-                    <Text style={s.recordTitle}>{pres.medication}</Text>
+                    <View style={s.recordTitleRow}>
+                      <Text style={s.recordTitle}>{pres.medication}</Text>
+                      {/* Feature 1: Refill Alert Badge */}
+                      {isRefillSoon(pres.refill_on) && (
+                        <View style={s.alertBadge}>
+                          <Text style={s.alertBadgeTxt}>⚠️ Refill Soon</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={s.recordSub}>{pres.dosage} · Qty: {pres.quantity}</Text>
-                    <Text style={s.recordSub}>Refill: {pres.refill_on}</Text>
+                    <Text style={[s.recordSub, isRefillSoon(pres.refill_on) && { color: N.warning, fontFamily: 'Nunito_700Bold' }]}>
+                      Refill: {pres.refill_on}
+                    </Text>
                     <View style={s.repeatBadge}>
                       <Text style={s.repeatTxt}>🔄 {pres.refill_schedule}</Text>
                     </View>
@@ -332,7 +381,6 @@ export default function PatientDetail() {
             ))}
           </View>
         )}
-
       </ScrollView>
     </View>
   )
@@ -349,6 +397,8 @@ const s = StyleSheet.create({
   heroEye: { color: N.leaf, fontFamily: 'Nunito_700Bold', fontSize: 10, letterSpacing: 2, marginBottom: 2 },
   heroName: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', color: N.white },
   heroEmail: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: 'rgba(255,255,255,0.65)', marginTop: 2 },
+  copyIdBtn: { marginTop: 6, alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.12)', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20 },
+  copyIdTxt: { color: N.leaf, fontFamily: 'Nunito_600SemiBold', fontSize: 11 },
   heroBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.12)', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 },
   heroBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: N.mint },
   heroBadgeTxt: { color: N.white, fontFamily: 'Nunito_600SemiBold', fontSize: 12 },
@@ -372,16 +422,23 @@ const s = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
   manageBtn: { backgroundColor: N.moss, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10 },
   manageBtnTxt: { color: N.white, fontFamily: 'Nunito_700Bold', fontSize: 13 },
+  alertBanner: { backgroundColor: N.warningLight, borderWidth: 1, borderColor: '#FDE68A', borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  alertIcon: { fontSize: 18 },
+  alertTxt: { color: N.warning, fontFamily: 'Nunito_600SemiBold', fontSize: 13, flex: 1 },
   emptyCard: { backgroundColor: N.white, borderRadius: 16, padding: 32, alignItems: 'center', borderWidth: 1, borderColor: N.parchment },
   emptyIcon: { fontSize: 36, marginBottom: 10 },
   emptyTxt: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest, marginBottom: 4 },
   emptySub: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.stone, textAlign: 'center' },
   recordCard: { backgroundColor: N.white, borderRadius: 14, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: N.parchment, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  recordCardAlert: { borderColor: '#FDE68A', backgroundColor: '#FFFDF5' },
   recordLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, flex: 1 },
   recordIconBox: { width: 40, height: 40, borderRadius: 12, backgroundColor: N.mist, alignItems: 'center', justifyContent: 'center' },
   recordIcon: { fontSize: 18 },
   recordInfo: { flex: 1 },
-  recordTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest, marginBottom: 3 },
+  recordTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 },
+  recordTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest },
+  alertBadge: { backgroundColor: N.warningLight, paddingVertical: 2, paddingHorizontal: 8, borderRadius: 20 },
+  alertBadgeTxt: { color: N.warning, fontFamily: 'Nunito_600SemiBold', fontSize: 10 },
   recordSub: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, marginBottom: 2 },
   repeatBadge: { backgroundColor: N.mist, paddingVertical: 3, paddingHorizontal: 10, borderRadius: 20, alignSelf: 'flex-start', marginTop: 4 },
   repeatTxt: { color: N.moss, fontFamily: 'Nunito_600SemiBold', fontSize: 11 },
