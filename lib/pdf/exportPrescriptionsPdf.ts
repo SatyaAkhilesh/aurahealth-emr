@@ -1,88 +1,98 @@
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
-
 export function exportPrescriptionsPdf(patientName: string, prescriptions: any[]) {
-  const doc = new jsPDF()
   const date = new Date().toLocaleDateString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric'
   })
 
-  // Header background
-  doc.setFillColor(45, 90, 61)
-  doc.rect(0, 0, 210, 40, 'F')
+  const rows = prescriptions.map(p => {
+    const isRefillSoon = p.refill_on && (() => {
+      const today = new Date()
+      const refill = new Date(p.refill_on)
+      const diff = (refill.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+      return diff >= 0 && diff <= 7
+    })()
 
-  // Brand
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(22)
-  doc.setTextColor(255, 255, 255)
-  doc.text('AuraHealth', 14, 18)
+    return `
+      <tr>
+        <td>${p.medication || '—'}</td>
+        <td>${p.dosage || '—'}</td>
+        <td>${p.quantity ?? '—'}</td>
+        <td style="${isRefillSoon ? 'color:#D97706;font-weight:bold;' : ''}">${p.refill_on || '—'}${isRefillSoon ? ' ⚠️' : ''}</td>
+        <td>${p.refill_schedule || '—'}</td>
+      </tr>
+    `
+  }).join('')
 
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-  doc.setTextColor(168, 201, 127)
-  doc.text('Electronic Medical Records', 14, 26)
+  const html = `
+    <html>
+      <head>
+        <title>Prescriptions — ${patientName}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; background: #FAF7F2; color: #1A3C2E; }
+          .header { background: #2D5A3D; padding: 32px; color: white; }
+          .header h1 { font-size: 28px; letter-spacing: -0.5px; }
+          .header h2 { font-size: 14px; opacity: 0.7; margin-top: 4px; font-weight: normal; }
+          .header h3 { font-size: 16px; margin-top: 12px; color: #A8C97F; }
+          .meta { background: #EDE8DF; padding: 12px 32px; font-size: 12px; color: #8A8A7A; display: flex; gap: 32px; }
+          .content { padding: 32px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 8px; border-radius: 12px; overflow: hidden; }
+          th { background: #2D5A3D; color: white; padding: 12px 16px; text-align: left; font-size: 13px; letter-spacing: 0.5px; }
+          td { padding: 12px 16px; border-bottom: 1px solid #EDE8DF; font-size: 13px; color: #1A3C2E; }
+          tr:nth-child(even) td { background: #E8F0E4; }
+          .section-title { font-size: 16px; font-weight: bold; color: #1A3C2E; margin-bottom: 12px; }
+          .alert { background: #FEF9C3; border: 1px solid #FDE68A; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: #D97706; }
+          .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #EDE8DF; color: #8A8A7A; font-size: 11px; display: flex; justify-content: space-between; }
+          .print-btn { position: fixed; bottom: 24px; right: 24px; background: #2D5A3D; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; cursor: pointer; font-family: Arial; }
+          @media print { .print-btn { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>AuraHealth</h1>
+          <h2>Electronic Medical Records</h2>
+          <h3>Prescriptions — ${patientName}</h3>
+        </div>
+        <div class="meta">
+          <span>Generated: ${date}</span>
+          <span>Total Records: ${prescriptions.length}</span>
+          <span>CONFIDENTIAL</span>
+        </div>
+        <div class="content">
+          ${prescriptions.some(p => {
+            if (!p.refill_on) return false
+            const diff = (new Date(p.refill_on).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+            return diff >= 0 && diff <= 7
+          }) ? `<div class="alert">⚠️ Some prescriptions require refill within 7 days. Please review highlighted entries.</div>` : ''}
+          <p class="section-title">Prescription List</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Medication</th>
+                <th>Dosage</th>
+                <th>Qty</th>
+                <th>Refill Date</th>
+                <th>Schedule</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.length > 0 ? rows : '<tr><td colspan="5" style="text-align:center;color:#8A8A7A;padding:24px;">No prescriptions on record.</td></tr>'}
+            </tbody>
+          </table>
+          <div class="footer">
+            <span>AuraHealth — Confidential Medical Records</span>
+            <span>${patientName}</span>
+          </div>
+        </div>
+        <button class="print-btn" onclick="window.print()">🖨️ Print / Save PDF</button>
+      </body>
+    </html>
+  `
 
-  // Document title
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.setTextColor(255, 255, 255)
-  doc.text(`Prescriptions — ${patientName}`, 14, 35)
-
-  // Meta info
-  doc.setFillColor(248, 247, 242)
-  doc.rect(0, 40, 210, 18, 'F')
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(138, 138, 122)
-  doc.text(`Generated: ${date}`, 14, 50)
-  doc.text(`Total Records: ${prescriptions.length}`, 80, 50)
-  doc.text('CONFIDENTIAL', 160, 50)
-
-  // Table
-  autoTable(doc, {
-    startY: 62,
-    head: [['Medication', 'Dosage', 'Qty', 'Refill Date', 'Schedule']],
-    body: prescriptions.map(p => [
-      p.medication || '—',
-      p.dosage || '—',
-      String(p.quantity ?? '—'),
-      p.refill_on || '—',
-      p.refill_schedule || '—',
-    ]),
-    headStyles: {
-      fillColor: [45, 90, 61],
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      fontSize: 10,
-    },
-    bodyStyles: {
-      fontSize: 9,
-      textColor: [26, 60, 46],
-    },
-    alternateRowStyles: {
-      fillColor: [232, 240, 228],
-    },
-    styles: {
-      cellPadding: 6,
-      lineColor: [237, 232, 223],
-      lineWidth: 0.3,
-    },
-    margin: { left: 14, right: 14 },
-  })
-
-  // Footer
-  const pageCount = (doc as any).internal.getNumberOfPages()
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i)
-    doc.setFontSize(8)
-    doc.setTextColor(138, 138, 122)
-    doc.text(
-      `AuraHealth — Confidential — Page ${i} of ${pageCount}`,
-      14,
-      doc.internal.pageSize.height - 10
-    )
-  }
-
-  doc.save(`Prescriptions_${patientName.replace(/ /g, '_')}.pdf`)
+  const blob = new Blob([html], { type: 'text/html' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `Prescriptions_${patientName.replace(/ /g, '_')}.html`
+  a.click()
+  URL.revokeObjectURL(url)
 }
