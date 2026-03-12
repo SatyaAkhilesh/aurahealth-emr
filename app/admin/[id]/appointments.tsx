@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
+import { showAlert, showConfirm } from '@/lib/webUtils'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import LoadingSpinner from '@/components/LoadingSpinner'
@@ -37,7 +38,8 @@ const REPEAT_OPTIONS = ['daily', 'weekly', 'monthly', 'yearly', 'none']
 
 export default function AppointmentsCRUD() {
   const router = useRouter()
-  const { id } = useLocalSearchParams()
+  const params = useLocalSearchParams()
+  const id = params.id as string
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
   const [modalVisible, setModalVisible] = useState(false)
@@ -46,7 +48,7 @@ export default function AppointmentsCRUD() {
   const [form, setForm] = useState({ provider: '', datetime: '', repeat: 'weekly' })
   const [errors, setErrors] = useState<any>({})
 
-  useEffect(() => { fetchAppointments() }, [id])
+  useEffect(() => { if (id) fetchAppointments() }, [id])
 
   const fetchAppointments = async () => {
     setLoading(true)

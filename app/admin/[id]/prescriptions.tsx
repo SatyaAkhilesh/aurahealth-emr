@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Alert, Modal
+  TouchableOpacity, Modal
 } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
+import { showAlert, showConfirm } from '@/lib/webUtils'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import LoadingSpinner from '@/components/LoadingSpinner'
@@ -40,7 +41,9 @@ const SCHEDULES = ['weekly', 'monthly', 'quarterly', 'yearly']
 
 export default function PrescriptionsCRUD() {
   const router = useRouter()
-  const { id } = useLocalSearchParams()
+  const params = useLocalSearchParams()
+  const id = params.id as string
+
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([])
   const [loading, setLoading] = useState(true)
   const [modalVisible, setModalVisible] = useState(false)
@@ -55,7 +58,7 @@ export default function PrescriptionsCRUD() {
   })
   const [errors, setErrors] = useState<any>({})
 
-  useEffect(() => { fetchPrescriptions() }, [id])
+  useEffect(() => { if (id) fetchPrescriptions() }, [id])
 
   const fetchPrescriptions = async () => {
     setLoading(true)
@@ -64,7 +67,7 @@ export default function PrescriptionsCRUD() {
       .select('*')
       .eq('patient_id', id)
       .order('created_at', { ascending: false })
-    if (error) Alert.alert('Error ❌', 'Failed to load prescriptions')
+    if (error) showAlert('Error ❌', 'Failed to load prescriptions')
     else setPrescriptions(data || [])
     setLoading(false)
   }
@@ -112,35 +115,30 @@ export default function PrescriptionsCRUD() {
       if (editingId) {
         const { error } = await supabase.from('prescriptions').update(payload).eq('id', editingId)
         if (error) throw error
-        Alert.alert('Success 🌿', 'Prescription updated!')
+        showAlert('Success 🌿', 'Prescription updated!')
       } else {
         const { error } = await supabase.from('prescriptions').insert({ ...payload, patient_id: id })
         if (error) throw error
-        Alert.alert('Success 🌿', 'Prescription added!')
+        showAlert('Success 🌿', 'Prescription added!')
       }
       setModalVisible(false)
       fetchPrescriptions()
     } catch (error: any) {
-      Alert.alert('Error ❌', error.message || 'Failed to save')
+      showAlert('Error ❌', error.message || 'Failed to save')
     } finally {
       setSaving(false)
     }
   }
 
-  const handleDelete = (presId: string) => {
-    Alert.alert('Delete Prescription', 'Are you sure you want to delete this prescription?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          const { error } = await supabase.from('prescriptions').delete().eq('id', presId)
-          if (error) Alert.alert('Error ❌', 'Failed to delete')
-          else {
-            Alert.alert('Deleted 🌿', 'Prescription removed!')
-            setPrescriptions(prev => prev.filter(p => p.id !== presId))
-          }
-        }
-      }
-    ])
+  const handleDelete = async (presId: string) => {
+    const confirmed = await showConfirm('Delete Prescription', 'Are you sure you want to delete this prescription?')
+    if (!confirmed) return
+    const { error } = await supabase.from('prescriptions').delete().eq('id', presId)
+    if (error) showAlert('Error ❌', 'Failed to delete')
+    else {
+      showAlert('Deleted 🌿', 'Prescription removed!')
+      setPrescriptions(prev => prev.filter(p => p.id !== presId))
+    }
   }
 
   return (
@@ -219,7 +217,6 @@ export default function PrescriptionsCRUD() {
               <Text style={s.modalSub}>Select medication details below</Text>
               <View style={s.modalDivider} />
 
-              {/* Medication */}
               <Text style={s.selectLabel}>Medication *</Text>
               <View style={s.optionsGrid}>
                 {MEDICATIONS.map(med => (
@@ -234,7 +231,6 @@ export default function PrescriptionsCRUD() {
                 ))}
               </View>
 
-              {/* Dosage */}
               <Text style={s.selectLabel}>Dosage *</Text>
               <View style={s.optionsGrid}>
                 {DOSAGES.map(dose => (
@@ -266,7 +262,6 @@ export default function PrescriptionsCRUD() {
                 error={errors.refill_on}
               />
 
-              {/* Schedule */}
               <Text style={s.selectLabel}>Refill Schedule</Text>
               <View style={s.optionsGrid}>
                 {SCHEDULES.map(sched => (
@@ -289,7 +284,6 @@ export default function PrescriptionsCRUD() {
                   loading={saving}
                 />
               </View>
-
               <View style={{ height: 32 }} />
             </View>
           </ScrollView>
@@ -301,11 +295,7 @@ export default function PrescriptionsCRUD() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: N.cream },
-  header: {
-    backgroundColor: N.forest,
-    paddingHorizontal: 24, paddingVertical: 18, paddingTop: 48,
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-  },
+  header: { backgroundColor: N.forest, paddingHorizontal: 24, paddingVertical: 18, paddingTop: 48, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   backBtn: { paddingVertical: 4, paddingHorizontal: 8 },
   backTxt: { color: N.leaf, fontFamily: 'Nunito_600SemiBold', fontSize: 14 },
   headerTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', color: N.white },
@@ -314,11 +304,7 @@ const s = StyleSheet.create({
   banner: { backgroundColor: N.moss, paddingHorizontal: 24, paddingVertical: 10, paddingBottom: 16 },
   bannerTxt: { color: 'rgba(255,255,255,0.7)', fontFamily: 'Nunito_400Regular', fontSize: 12 },
   scroll: { flex: 1 },
-  card: {
-    backgroundColor: N.white, borderRadius: 14, padding: 16, marginBottom: 10,
-    borderWidth: 1, borderColor: N.parchment,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-  },
+  card: { backgroundColor: N.white, borderRadius: 14, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: N.parchment, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, flex: 1 },
   cardIconBox: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#E8F4F8', alignItems: 'center', justifyContent: 'center' },
   cardIcon: { fontSize: 20 },

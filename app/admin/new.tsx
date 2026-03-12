@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView,
-  Alert, TouchableOpacity
+  TouchableOpacity
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { supabase } from '@/lib/supabase'
+import { showAlert } from '@/lib/webUtils'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 
@@ -18,7 +19,6 @@ const N = {
   stone:     '#8A8A7A',
   white:     '#FFFFFF',
   parchment: '#EDE8DF',
-  danger:    '#B45309',
 }
 
 export default function NewPatient() {
@@ -47,6 +47,7 @@ export default function NewPatient() {
         password: form.password,
       })
       if (authError) throw authError
+
       const { error: insertError } = await supabase.from('patients').insert({
         name: form.name,
         email: form.email,
@@ -54,11 +55,11 @@ export default function NewPatient() {
         auth_user_id: authData.user?.id,
       })
       if (insertError) throw insertError
-      Alert.alert('Success! 🌿', 'Patient created successfully!', [
-        { text: 'OK', onPress: () => router.push('/admin') }
-      ])
+
+      showAlert('Success! 🌿', 'Patient created successfully!')
+      router.push('/admin')
     } catch (error: any) {
-      Alert.alert('Error ❌', error.message || 'Failed to create patient')
+      showAlert('Error ❌', error.message || 'Failed to create patient')
     } finally {
       setLoading(false)
     }
@@ -148,7 +149,6 @@ export default function NewPatient() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: N.cream },
-
   header: {
     backgroundColor: N.forest,
     paddingHorizontal: 24,
@@ -161,14 +161,11 @@ const s = StyleSheet.create({
   backBtn: { paddingVertical: 4, paddingHorizontal: 8 },
   backTxt: { color: N.leaf, fontFamily: 'Nunito_600SemiBold', fontSize: 14 },
   headerTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', color: N.white },
-
   scroll: { flex: 1 },
-
   pageTitleRow: { marginBottom: 24 },
   pageEye: { color: N.sage, fontFamily: 'Nunito_700Bold', fontSize: 10, letterSpacing: 2, marginBottom: 4 },
   pageTitle: { fontSize: 24, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
   pageSub: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.stone, marginTop: 4 },
-
   card: {
     backgroundColor: N.white,
     borderRadius: 16,
@@ -181,9 +178,7 @@ const s = StyleSheet.create({
   cardIcon: { fontSize: 18 },
   cardTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', color: N.forest },
   cardDivider: { height: 1, backgroundColor: N.parchment, marginBottom: 16 },
-
   hint: { backgroundColor: N.mist, borderRadius: 10, padding: 12, marginTop: 4 },
   hintTxt: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.moss },
-
   actions: { flexDirection: 'row', gap: 12, marginTop: 8 },
 })
