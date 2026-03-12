@@ -7,61 +7,53 @@ import { useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
 import { theme } from '../../theme'
 import Avatar from '../../components/Avatar'
-import Badge from '../../components/Badge'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import EmptyState from '../../components/EmptyState'
-import Button from '../../components/Button'
 
 type Patient = {
   id: string
-  full_name: string
+  name: string
   email: string
-  date_of_birth: string
-  phone: string
-  insurance: string
+  created_at: string
 }
 
-export default function AdminIndex() {
+export default function AdminDashboard() {
   const router = useRouter()
   const [patients, setPatients] = useState<Patient[]>([])
   const [filtered, setFiltered] = useState<Patient[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [totalAppointments, setTotalAppointments] = useState(0)
+  const [totalPrescriptions, setTotalPrescriptions] = useState(0)
 
-  useEffect(() => {
-    fetchPatients()
-  }, [])
+  useEffect(() => { fetchAll() }, [])
 
   useEffect(() => {
     if (search.trim() === '') {
       setFiltered(patients)
     } else {
       setFiltered(patients.filter(p =>
-        p.full_name.toLowerCase().includes(search.toLowerCase()) ||
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.email.toLowerCase().includes(search.toLowerCase())
       ))
     }
   }, [search, patients])
 
-  const fetchPatients = async () => {
+  const fetchAll = async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('patients')
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      Alert.alert('Error', 'Failed to load patients')
-    } else {
-      setPatients(data || [])
-      setFiltered(data || [])
+    const [patientsRes, apptRes, presRes] = await Promise.all([
+      supabase.from('patients').select('*').order('created_at', { ascending: false }),
+      supabase.from('appointments').select('id', { count: 'exact' }),
+      supabase.from('prescriptions').select('id', { count: 'exact' }),
+    ])
+    if (patientsRes.error) Alert.alert('Error', 'Failed to load patients')
+    else {
+      setPatients(patientsRes.data || [])
+      setFiltered(patientsRes.data || [])
     }
+    setTotalAppointments(apptRes.count || 0)
+    setTotalPrescriptions(presRes.count || 0)
     setLoading(false)
-  }
-
-  const formatDOB = (dob: string) => {
-    if (!dob) return 'N/A'
-    return new Date(dob).toLocaleDateString()
   }
 
   return (
@@ -70,90 +62,104 @@ export default function AdminIndex() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>AuraHealth EMR</Text>
-          <Text style={styles.headerSub}>Patient Management</Text>
+          <Text style={styles.logo}>💜 AuraHealth</Text>
+          <Text style={styles.logoSub}>EMR Admin Portal</Text>
         </View>
-        <Button
-          title="+ Add Patient"
+        <TouchableOpacity
+          style={styles.addBtn}
           onPress={() => router.push('/admin/new')}
-        />
+        >
+          <Text style={styles.addBtnText}>+ Add Patient</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Search */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="🔍 Search by name or email..."
-          placeholderTextColor={theme.muted}
-          value={search}
-          onChangeText={setSearch}
-        />
-      </View>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
 
-      {/* Content */}
-      {loading ? (
-        <LoadingSpinner message="Loading patients..." />
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          icon="👤"
-          title="No patients found"
-          message="Add a new patient to get started"
-        />
-      ) : (
-        <ScrollView style={styles.list}>
-          {/* Table Header */}
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderText, { flex: 2 }]}>Patient</Text>
-            <Text style={[styles.tableHeaderText, { flex: 2 }]}>Email</Text>
-            <Text style={[styles.tableHeaderText, { flex: 1 }]}>DOB</Text>
-            <Text style={[styles.tableHeaderText, { flex: 1 }]}>Phone</Text>
-            <Text style={[styles.tableHeaderText, { flex: 1 }]}>Action</Text>
+        {/* Stats Cards */}
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, { backgroundColor: theme.primary }]}>
+            <Text style={styles.statIcon}>👥</Text>
+            <Text style={styles.statNumber}>{patients.length}</Text>
+            <Text style={styles.statLabel}>Total Patients</Text>
           </View>
+          <View style={[styles.statCard, { backgroundColor: '#0891B2' }]}>
+            <Text style={styles.statIcon}>📅</Text>
+            <Text style={styles.statNumber}>{totalAppointments}</Text>
+            <Text style={styles.statLabel}>Appointments</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: '#10B981' }]}>
+            <Text style={styles.statIcon}>💊</Text>
+            <Text style={styles.statNumber}>{totalPrescriptions}</Text>
+            <Text style={styles.statLabel}>Prescriptions</Text>
+          </View>
+        </View>
 
-          {/* Table Rows */}
-          {filtered.map((patient, index) => (
-            <TouchableOpacity
-              key={patient.id}
-              style={[
-                styles.tableRow,
-                index % 2 === 0 ? styles.rowEven : styles.rowOdd
-              ]}
-              onPress={() => router.push(`/admin/${patient.id}`)}
-            >
-              {/* Name + Avatar */}
-              <View style={[styles.cell, { flex: 2, flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
-                <Avatar name={patient.full_name} size={36} />
-                <Text style={styles.nameText}>{patient.full_name}</Text>
-              </View>
+        {/* Search */}
+        <View style={styles.searchWrapper}>
+          <Text style={styles.sectionTitle}>All Patients</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="🔍  Search by name or email..."
+            placeholderTextColor={theme.muted}
+            value={search}
+            onChangeText={setSearch}
+          />
+        </View>
 
-              {/* Email */}
-              <View style={[styles.cell, { flex: 2 }]}>
-                <Text style={styles.cellText}>{patient.email}</Text>
-              </View>
+        {/* Patient Table */}
+        {loading ? (
+          <LoadingSpinner message="Loading patients..." />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon="👤"
+            title="No patients found"
+            message="Try a different search or add a new patient"
+          />
+        ) : (
+          <View style={styles.tableWrapper}>
 
-              {/* DOB */}
-              <View style={[styles.cell, { flex: 1 }]}>
-                <Text style={styles.cellText}>{formatDOB(patient.date_of_birth)}</Text>
-              </View>
+            {/* Table Header */}
+            <View style={styles.tableHead}>
+              <Text style={[styles.headCell, { flex: 2.5 }]}>Patient</Text>
+              <Text style={[styles.headCell, { flex: 2.5 }]}>Email</Text>
+              <Text style={[styles.headCell, { flex: 1, textAlign: 'center' }]}>Action</Text>
+            </View>
 
-              {/* Phone */}
-              <View style={[styles.cell, { flex: 1 }]}>
-                <Text style={styles.cellText}>{patient.phone || 'N/A'}</Text>
-              </View>
+            {/* Rows */}
+            {filtered.map((patient, index) => (
+              <TouchableOpacity
+                key={patient.id}
+                style={[styles.tableRow, index % 2 === 0 ? styles.rowEven : styles.rowOdd]}
+                onPress={() => router.push(`/admin/${patient.id}`)}
+                activeOpacity={0.7}
+              >
+                {/* Name + Avatar */}
+                <View style={[styles.cell, { flex: 2.5, flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
+                  <Avatar name={patient.name} size={38} />
+                  <Text style={styles.nameText}>{patient.name}</Text>
+                </View>
 
-              {/* Action */}
-              <View style={[styles.cell, { flex: 1 }]}>
-                <TouchableOpacity
-                  style={styles.viewButton}
-                  onPress={() => router.push(`/admin/${patient.id}`)}
-                >
-                  <Text style={styles.viewButtonText}>View →</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
+                {/* Email */}
+                <View style={[styles.cell, { flex: 2.5 }]}>
+                  <Text style={styles.cellText}>{patient.email}</Text>
+                </View>
+
+                {/* Action */}
+                <View style={[styles.cell, { flex: 1, alignItems: 'center' }]}>
+                  <TouchableOpacity
+                    style={styles.viewBtn}
+                    onPress={() => router.push(`/admin/${patient.id}`)}
+                  >
+                    <Text style={styles.viewBtnText}>View →</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </View>
   )
 }
@@ -165,51 +171,94 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: theme.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingHorizontal: 28,
+    paddingVertical: 22,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 22,
+  logo: {
+    fontSize: 24,
     fontFamily: 'Nunito_800ExtraBold',
     color: theme.white,
   },
-  headerSub: {
+  logoSub: {
     fontSize: 13,
     fontFamily: 'Nunito_400Regular',
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 2,
   },
-  searchContainer: {
-    padding: 16,
-    backgroundColor: theme.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border,
+  addBtn: {
+    backgroundColor: theme.white,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: theme.radiusFull,
+  },
+  addBtnText: {
+    color: theme.primary,
+    fontFamily: 'Nunito_700Bold',
+    fontSize: 14,
+  },
+  scroll: { flex: 1 },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 20,
+  },
+  statCard: {
+    flex: 1,
+    borderRadius: theme.radiusLg,
+    padding: 18,
+    alignItems: 'center',
+    ...theme.shadow,
+  },
+  statIcon: { fontSize: 24, marginBottom: 6 },
+  statNumber: {
+    fontSize: 28,
+    fontFamily: 'Nunito_800ExtraBold',
+    color: theme.white,
+  },
+  statLabel: {
+    fontSize: 12,
+    fontFamily: 'Nunito_600SemiBold',
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 2,
+  },
+  searchWrapper: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: 'Nunito_800ExtraBold',
+    color: theme.text,
+    marginBottom: 12,
   },
   searchInput: {
-    backgroundColor: theme.background,
-    borderRadius: theme.radiusMd,
-    padding: 12,
-    fontSize: 14,
-    fontFamily: 'Nunito_400Regular',
-    color: theme.text,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  list: {
-    flex: 1,
-    padding: 16,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: theme.primary,
+    backgroundColor: theme.surface,
     borderRadius: theme.radiusMd,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    marginBottom: 4,
+    fontSize: 14,
+    fontFamily: 'Nunito_400Regular',
+    color: theme.text,
+    borderWidth: 1.5,
+    borderColor: theme.border,
   },
-  tableHeaderText: {
+  tableWrapper: {
+    marginHorizontal: 20,
+    borderRadius: theme.radiusLg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  tableHead: {
+    flexDirection: 'row',
+    backgroundColor: theme.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  headCell: {
     color: theme.white,
     fontFamily: 'Nunito_700Bold',
     fontSize: 13,
@@ -218,21 +267,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: theme.radiusSm,
-    marginBottom: 2,
     alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
   },
-  rowEven: {
-    backgroundColor: theme.surface,
-  },
-  rowOdd: {
-    backgroundColor: theme.primaryLight,
-  },
-  cell: {
-    justifyContent: 'center',
-  },
+  rowEven: { backgroundColor: theme.surface },
+  rowOdd: { backgroundColor: '#FAF9FF' },
+  cell: { justifyContent: 'center' },
   nameText: {
-    fontFamily: 'Nunito_600SemiBold',
+    fontFamily: 'Nunito_700Bold',
     fontSize: 14,
     color: theme.text,
   },
@@ -241,15 +284,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: theme.muted,
   },
-  viewButton: {
-    backgroundColor: theme.primaryLight,
+  viewBtn: {
+    backgroundColor: theme.primary,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: theme.radiusFull,
   },
-  viewButtonText: {
-    color: theme.primary,
+  viewBtnText: {
+    color: theme.white,
     fontFamily: 'Nunito_700Bold',
     fontSize: 12,
-  }
+  },
 })
