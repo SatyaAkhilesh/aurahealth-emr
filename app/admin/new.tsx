@@ -39,31 +39,25 @@ export default function NewPatient() {
   }
 
   const handleSubmit = async () => {
-    if (!validate()) return
-    setLoading(true)
-    try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: form.email,
-        password: form.password,
-      })
-      if (authError) throw authError
+  if (!validate()) return
+  setLoading(true)
+  try {
+    // Insert patient directly without auth signup
+    const { error: insertError } = await supabase.from('patients').insert({
+      name: form.name,
+      email: form.email,
+      password: form.password,
+    })
+    if (insertError) throw insertError
 
-      const { error: insertError } = await supabase.from('patients').insert({
-        name: form.name,
-        email: form.email,
-        password: form.password,
-        auth_user_id: authData.user?.id,
-      })
-      if (insertError) throw insertError
-
-      showAlert('Success! 🌿', 'Patient created successfully!')
-      router.push('/admin')
-    } catch (error: any) {
-      showAlert('Error ❌', error.message || 'Failed to create patient')
-    } finally {
-      setLoading(false)
-    }
+    showAlert('Success! 🌿', 'Patient created successfully!')
+    router.push('/admin')
+  } catch (error: any) {
+    showAlert('Error ❌', error.message || 'Failed to create patient')
+  } finally {
+    setLoading(false)
   }
+}
 
   return (
     <View style={s.root}>

@@ -262,6 +262,27 @@ export default function PatientDetail() {
             <TouchableOpacity style={s.pdfBtn} onPress={() => exportPatientSummaryPdf(patient, appointments, prescriptions)} activeOpacity={0.8}>
               <Text style={s.pdfBtnTxt}>⬇️  Download Patient Summary PDF</Text>
             </TouchableOpacity>
+
+            {/* Delete Patient */}
+            <TouchableOpacity
+              style={s.dangerBtn}
+              onPress={async () => {
+                const confirmed = await showConfirm(
+                  'Delete Patient',
+                  'This will permanently delete the patient and ALL their records. This cannot be undone!'
+                )
+                if (!confirmed) return
+                const { error } = await supabase.from('patients').delete().eq('id', id)
+                if (error) showAlert('Error ❌', 'Failed to delete patient')
+                else {
+                  showAlert('Deleted 🌿', 'Patient removed successfully!')
+                  router.push('/admin')
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={s.dangerBtnTxt}>🗑  Delete Patient</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -425,6 +446,8 @@ const s = StyleSheet.create({
   recordSub: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, marginBottom: 2 },
   repeatBadge: { backgroundColor: N.mist, paddingVertical: 3, paddingHorizontal: 10, borderRadius: 20, alignSelf: 'flex-start', marginTop: 4 },
   repeatTxt: { color: N.moss, fontFamily: 'Nunito_600SemiBold', fontSize: 11 },
+  dangerBtn: { backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 4, marginBottom: 16 },
+  dangerBtnTxt: { color: '#B45309', fontFamily: 'Nunito_700Bold', fontSize: 13 },
   deleteBtn: { padding: 8, backgroundColor: N.dangerLight, borderRadius: 10 },
   deleteTxt: { fontSize: 16 },
 })
