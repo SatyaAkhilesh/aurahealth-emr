@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Modal, TextInput, ActivityIndicator
@@ -6,7 +6,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { showAlert, showConfirm } from '@/lib/webUtils'
-import { searchDrug, DrugInfo } from '@/lib/fdaApi'
+import { searchDrug, searchDrugSuggestions, DrugInfo, DrugSuggestion } from '@/lib/fdaApi'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import LoadingSpinner from '@/components/LoadingSpinner'
@@ -16,14 +16,12 @@ const N = {
   forest:      '#18382C',
   moss:        '#2F5D46',
   sage:        '#6B8F71',
-  mint:        '#7FB069',
   leaf:        '#B7D39A',
   mist:        '#F1F5EE',
   cream:       '#FAF7F2',
   stone:       '#7C7A70',
   white:       '#FFFFFF',
   parchment:   '#E8E1D6',
-  sand:        '#D6CEC1',
   dangerLight: '#FDECEA',
   danger:      '#B8402A',
   warning:     '#C98A04',
@@ -43,7 +41,6 @@ type Prescription = {
   notes?: string
 }
 
-const MEDICATIONS = ['Diovan', 'Lexapro', 'Metformin', 'Ozempic', 'Prozac', 'Seroquel', 'Tegretol']
 const DOSAGES = ['1mg', '2mg', '3mg', '5mg', '10mg', '25mg', '50mg', '100mg', '250mg', '500mg', '1000mg']
 const SCHEDULES = ['weekly', 'monthly', 'quarterly', 'yearly']
 
@@ -61,6 +58,9 @@ export default function PrescriptionsCRUD() {
   const [drugInfo, setDrugInfo] = useState<DrugInfo | null>(null)
   const [loadingDrug, setLoadingDrug] = useState(false)
   const [showDrugInfo, setShowDrugInfo] = useState(false)
+  const [suggestions, setSuggestions] = useState<DrugSuggestion[]>([])
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const searchTimeout = useRef<any>(null)
   const [form, setForm] = useState({
     medication: '',
     dosage: '5mg',
@@ -94,21 +94,25 @@ export default function PrescriptionsCRUD() {
     return Object.keys(e).length === 0
   }
 
-  const openAddModal = () => {
-    setEditingId(null)
+  const resetModal = () => {
     setMedSearch('')
     setDrugInfo(null)
     setShowDrugInfo(false)
-    setForm({ medication: '', dosage: '5mg', quantity: '1', refill_on: '', refill_schedule: 'monthly', notes: '' })
+    setSuggestions([])
     setErrors({})
+  }
+
+  const openAddModal = () => {
+    setEditingId(null)
+    resetModal()
+    setForm({ medication: '', dosage: '5mg', quantity: '1', refill_on: '', refill_schedule: 'monthly', notes: '' })
     setModalVisible(true)
   }
 
   const openEditModal = (pres: Prescription) => {
     setEditingId(pres.id)
+    resetModal()
     setMedSearch(pres.medication)
-    setDrugInfo(null)
-    setShowDrugInfo(false)
     setForm({
       medication: pres.medication,
       dosage: pres.dosage,
@@ -117,27 +121,48 @@ export default function PrescriptionsCRUD() {
       refill_schedule: pres.refill_schedule,
       notes: pres.notes || '',
     })
-    setErrors({})
     setModalVisible(true)
   }
 
-  const selectMedication = async (med: string) => {
-    setForm({ ...form, medication: med })
-    setMedSearch(med)
+  // ── Handle live search ──
+  const handleMedSearch = (text: string) => {
+    setMedSearch(text)
+    // Clear selected medication when typing
+    setForm(prev => ({ ...prev, medication: '' }))
+    setDrugInfo(null)
+    setShowDrugInfo(false)
+    setSuggestions([])
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    if (text.length < 2) return
+    setLoadingSuggestions(true)
+    searchTimeout.current = setTimeout(async () => {
+      const results = await searchDrugSuggestions(text)
+      setSuggestions(results)
+      setLoadingSuggestions(false)
+    }, 500)
+  }
+
+  // ── Select a drug and fetch FDA info ──
+  const selectMedication = async (name: string) => {
+    setForm(prev => ({ ...prev, medication: name }))
+    setMedSearch(name)
+    setSuggestions([])
     setDrugInfo(null)
     setShowDrugInfo(false)
     setLoadingDrug(true)
-
-    // Fetch FDA drug info
-    const info = await searchDrug(med)
+    const info = await searchDrug(name)
     setDrugInfo(info)
     setShowDrugInfo(!!info)
     setLoadingDrug(false)
   }
 
-  const filteredMeds = MEDICATIONS.filter(m =>
-    m.toLowerCase().includes(medSearch.toLowerCase())
-  )
+  const clearMed = () => {
+    setForm(prev => ({ ...prev, medication: '' }))
+    setMedSearch('')
+    setDrugInfo(null)
+    setShowDrugInfo(false)
+    setSuggestions([])
+  }
 
   const handleSave = async () => {
     if (!validate()) return
@@ -170,7 +195,7 @@ export default function PrescriptionsCRUD() {
   }
 
   const handleDelete = async (presId: string) => {
-    const confirmed = await showConfirm('Delete Prescription', 'Are you sure you want to delete this prescription?')
+    const confirmed = await showConfirm('Delete Prescription', 'Are you sure?')
     if (!confirmed) return
     const { error } = await supabase.from('prescriptions').delete().eq('id', presId)
     if (error) showAlert('Error ❌', 'Failed to delete')
@@ -184,6 +209,13 @@ export default function PrescriptionsCRUD() {
     if (!date) return false
     const diff = (new Date(date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
     return diff >= 0 && diff <= 7
+  }
+
+  const setQuickDate = (days: number, months: number) => {
+    const d = new Date()
+    if (days) d.setDate(d.getDate() + days)
+    if (months) d.setMonth(d.getMonth() + months)
+    setForm(prev => ({ ...prev, refill_on: d.toISOString().split('T')[0] }))
   }
 
   return (
@@ -203,14 +235,15 @@ export default function PrescriptionsCRUD() {
       {/* Banner */}
       <View style={s.banner}>
         <Text style={s.bannerTxt}>
-          {prescriptions.length} prescription{prescriptions.length !== 1 ? 's' : ''} on record · Powered by FDA 🇺🇸
+          {prescriptions.length} prescription{prescriptions.length !== 1 ? 's' : ''} · Powered by FDA 🇺🇸
         </Text>
       </View>
 
+      {/* List */}
       {loading ? (
         <LoadingSpinner message="Loading prescriptions..." />
       ) : prescriptions.length === 0 ? (
-        <EmptyState icon="💊" title="No prescriptions yet" message="Tap '+ Prescribe' to add the first prescription" />
+        <EmptyState icon="💊" title="No prescriptions yet" message="Tap '+ Prescribe' to add the first" />
       ) : (
         <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
           {prescriptions.map(pres => (
@@ -232,12 +265,12 @@ export default function PrescriptionsCRUD() {
                   <Text style={[s.cardSub, isRefillSoon(pres.refill_on) && { color: N.warning, fontFamily: 'Nunito_700Bold' }]}>
                     🔄 Refill: {pres.refill_on} · {pres.refill_schedule}
                   </Text>
-                  {pres.notes ? (
+                  {!!pres.notes && (
                     <View style={s.noteBox}>
                       <Text style={s.noteIcon}>📝</Text>
                       <Text style={s.noteTxt}>{pres.notes}</Text>
                     </View>
-                  ) : null}
+                  )}
                 </View>
                 <View style={s.cardActions}>
                   <TouchableOpacity style={s.editBtn} onPress={() => openEditModal(pres)} activeOpacity={0.7}>
@@ -262,73 +295,68 @@ export default function PrescriptionsCRUD() {
               <Text style={s.modalTitle}>
                 {editingId ? '✏️ Edit Prescription' : '💊 New Prescription'}
               </Text>
-              <Text style={s.modalSub}>Search and select a medication to see FDA information</Text>
+              <Text style={s.modalSub}>Search any drug — powered by FDA database</Text>
               <View style={s.modalDivider} />
 
-              {/* Medicine Search */}
+              {/* Search */}
               <Text style={s.selectLabel}>Search Medication *</Text>
               <View style={s.medSearchBox}>
                 <Text style={s.medSearchIco}>🔍</Text>
                 <TextInput
                   style={s.medSearchInp}
-                  placeholder="Type to search medicines..."
+                  placeholder="Type any drug name..."
                   placeholderTextColor={N.stone}
                   value={medSearch}
-                  onChangeText={t => {
-                    setMedSearch(t)
-                    setForm({ ...form, medication: t })
-                    setDrugInfo(null)
-                    setShowDrugInfo(false)
-                  }}
+                  onChangeText={handleMedSearch}
                 />
-                {medSearch.length > 0 && (
-                  <TouchableOpacity onPress={() => {
-                    setMedSearch('')
-                    setForm({ ...form, medication: '' })
-                    setDrugInfo(null)
-                    setShowDrugInfo(false)
-                  }}>
+                {loadingSuggestions && (
+                  <ActivityIndicator size="small" color={N.moss} />
+                )}
+                {medSearch.length > 0 && !loadingSuggestions && (
+                  <TouchableOpacity onPress={clearMed} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Text style={{ color: N.stone, fontSize: 14 }}>✕</Text>
                   </TouchableOpacity>
                 )}
               </View>
-              {errors.medication && <Text style={s.errorTxt}>⚠ {errors.medication}</Text>}
+              {!!errors.medication && <Text style={s.errorTxt}>⚠ {errors.medication}</Text>}
 
-              {/* Suggestions */}
-              {medSearch.length > 0 && filteredMeds.length > 0 && !form.medication && (
+              {/* Suggestions dropdown — always show when available */}
+              {suggestions.length > 0 && (
                 <View style={s.suggestionsBox}>
-                  {filteredMeds.map(med => (
+                  <View style={s.suggestionsHeader}>
+                    <Text style={s.suggestionsHeaderTxt}>🇺🇸 FDA Drug Results</Text>
+                    <Text style={s.suggestionsCount}>{suggestions.length} found</Text>
+                  </View>
+                  {suggestions.map((sug, i) => (
                     <TouchableOpacity
-                      key={med}
-                      style={s.suggestionItem}
-                      onPress={() => selectMedication(med)}
+                      key={i}
+                      style={[s.suggestionItem, i === suggestions.length - 1 && { borderBottomWidth: 0 }]}
+                      onPress={() => selectMedication(sug.brand)}
                       activeOpacity={0.7}
                     >
                       <Text style={s.suggestionIcon}>💊</Text>
-                      <Text style={s.suggestionTxt}>{med}</Text>
-                      <Text style={{ color: N.stone, fontSize: 11 }}>Tap to select →</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.suggestionTxt}>{sug.brand}</Text>
+                        <Text style={s.suggestionGeneric}>Generic: {sug.generic}</Text>
+                      </View>
+                      <Text style={s.fdaVerified}>FDA ✓</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               )}
 
-              {/* Selected Badge */}
-              {form.medication ? (
+              {/* Selected badge */}
+              {!!form.medication && (
                 <View style={s.selectedMedBadge}>
                   <Text style={s.selectedMedIcon}>✅</Text>
                   <Text style={s.selectedMedTxt}>Selected: {form.medication}</Text>
-                  <TouchableOpacity onPress={() => {
-                    setForm({ ...form, medication: '' })
-                    setMedSearch('')
-                    setDrugInfo(null)
-                    setShowDrugInfo(false)
-                  }}>
-                    <Text style={{ color: N.stone, fontSize: 12 }}>Change</Text>
+                  <TouchableOpacity onPress={clearMed} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Text style={{ color: N.stone, fontSize: 12, fontFamily: 'Nunito_600SemiBold' }}>Change</Text>
                   </TouchableOpacity>
                 </View>
-              ) : null}
+              )}
 
-              {/* FDA Drug Info */}
+              {/* FDA loading */}
               {loadingDrug && (
                 <View style={s.fdaLoading}>
                   <ActivityIndicator size="small" color={N.accent} />
@@ -336,30 +364,27 @@ export default function PrescriptionsCRUD() {
                 </View>
               )}
 
-              {showDrugInfo && drugInfo && (
+              {/* FDA info card */}
+              {showDrugInfo && !!drugInfo && (
                 <View style={s.fdaCard}>
                   <View style={s.fdaHeader}>
-                    <Text style={s.fdaBadge}>🇺🇸 FDA</Text>
+                    <Text style={s.fdaBadge}>🇺🇸 FDA VERIFIED</Text>
                     <Text style={s.fdaTitle}>{drugInfo.name}</Text>
                     <Text style={s.fdaGeneric}>Generic: {drugInfo.generic}</Text>
                     <Text style={s.fdaManuf}>By: {drugInfo.manufacturer}</Text>
                   </View>
-
                   <View style={s.fdaSection}>
                     <Text style={s.fdaSectionTitle}>📋 Purpose</Text>
                     <Text style={s.fdaSectionTxt}>{drugInfo.purpose}</Text>
                   </View>
-
                   <View style={s.fdaSection}>
                     <Text style={[s.fdaSectionTitle, { color: N.warning }]}>⚠️ Warnings</Text>
                     <Text style={s.fdaSectionTxt}>{drugInfo.warnings}</Text>
                   </View>
-
                   <View style={s.fdaSection}>
                     <Text style={[s.fdaSectionTitle, { color: N.danger }]}>🚨 Side Effects</Text>
                     <Text style={s.fdaSectionTxt}>{drugInfo.sideEffects}</Text>
                   </View>
-
                   <View style={[s.fdaSection, { borderBottomWidth: 0 }]}>
                     <Text style={s.fdaSectionTitle}>💊 Dosage Info</Text>
                     <Text style={s.fdaSectionTxt}>{drugInfo.dosage}</Text>
@@ -367,8 +392,8 @@ export default function PrescriptionsCRUD() {
                 </View>
               )}
 
-              {/* No FDA data found */}
-              {!loadingDrug && form.medication && !drugInfo && (
+              {/* No FDA data */}
+              {!loadingDrug && !!form.medication && !drugInfo && !showDrugInfo && (
                 <View style={s.fdaNotFound}>
                   <Text style={s.fdaNotFoundTxt}>ℹ️ No FDA data found for this medication</Text>
                 </View>
@@ -381,7 +406,7 @@ export default function PrescriptionsCRUD() {
                   <TouchableOpacity
                     key={dose}
                     style={[s.optionBtn, form.dosage === dose && s.optionBtnActive]}
-                    onPress={() => setForm({ ...form, dosage: dose })}
+                    onPress={() => setForm(prev => ({ ...prev, dosage: dose }))}
                     activeOpacity={0.7}
                   >
                     <Text style={[s.optionTxt, form.dosage === dose && s.optionTxtActive]}>{dose}</Text>
@@ -392,43 +417,35 @@ export default function PrescriptionsCRUD() {
               <Input
                 label="Quantity *"
                 value={form.quantity}
-                onChangeText={t => setForm({ ...form, quantity: t })}
+                onChangeText={t => setForm(prev => ({ ...prev, quantity: t }))}
                 placeholder="1"
                 keyboardType="numeric"
                 error={errors.quantity}
               />
 
-              {/* Refill Date */}
+              {/* Refill date */}
               <Text style={s.selectLabel}>Refill Date *</Text>
-              <View style={s.dateInputBox}>
+              <View style={s.dateRow}>
                 <TextInput
                   style={s.dateInput}
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor={N.stone}
                   value={form.refill_on}
-                  onChangeText={t => setForm({ ...form, refill_on: t })}
+                  onChangeText={t => setForm(prev => ({ ...prev, refill_on: t }))}
                 />
+              </View>
+              <View style={s.quickDates}>
                 {[
-                  { label: '+1 Week', months: 0, days: 7 },
-                  { label: '+1 Month', months: 1, days: 0 },
-                  { label: '+3 Months', months: 3, days: 0 },
+                  { label: '+1 Week', days: 7, months: 0 },
+                  { label: '+1 Month', days: 0, months: 1 },
+                  { label: '+3 Months', days: 0, months: 3 },
                 ].map(opt => (
-                  <TouchableOpacity
-                    key={opt.label}
-                    style={s.dateQuickBtn}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      const d = new Date()
-                      if (opt.days) d.setDate(d.getDate() + opt.days)
-                      if (opt.months) d.setMonth(d.getMonth() + opt.months)
-                      setForm({ ...form, refill_on: d.toISOString().split('T')[0] })
-                    }}
-                  >
+                  <TouchableOpacity key={opt.label} style={s.dateQuickBtn} onPress={() => setQuickDate(opt.days, opt.months)} activeOpacity={0.7}>
                     <Text style={s.dateQuickTxt}>{opt.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
-              {errors.refill_on && <Text style={s.errorTxt}>⚠ {errors.refill_on}</Text>}
+              {!!errors.refill_on && <Text style={s.errorTxt}>⚠ {errors.refill_on}</Text>}
 
               {/* Schedule */}
               <Text style={s.selectLabel}>Refill Schedule</Text>
@@ -437,7 +454,7 @@ export default function PrescriptionsCRUD() {
                   <TouchableOpacity
                     key={sched}
                     style={[s.optionBtn, form.refill_schedule === sched && s.optionBtnActive]}
-                    onPress={() => setForm({ ...form, refill_schedule: sched })}
+                    onPress={() => setForm(prev => ({ ...prev, refill_schedule: sched }))}
                     activeOpacity={0.7}
                   >
                     <Text style={[s.optionTxt, form.refill_schedule === sched && s.optionTxtActive]}>{sched}</Text>
@@ -447,13 +464,13 @@ export default function PrescriptionsCRUD() {
 
               {/* Notes */}
               <Text style={s.selectLabel}>📝 Doctor's Notes (optional)</Text>
-              <View style={s.notesInputBox}>
+              <View style={s.notesBox}>
                 <TextInput
                   style={s.notesInput}
                   placeholder="e.g. Take with food, avoid alcohol..."
                   placeholderTextColor={N.stone}
                   value={form.notes}
-                  onChangeText={t => setForm({ ...form, notes: t })}
+                  onChangeText={t => setForm(prev => ({ ...prev, notes: t }))}
                   multiline
                   numberOfLines={3}
                 />
@@ -463,7 +480,7 @@ export default function PrescriptionsCRUD() {
                 <Button title="Cancel" variant="secondary" onPress={() => setModalVisible(false)} />
                 <Button title={editingId ? 'Save Changes' : '💊 Prescribe'} onPress={handleSave} loading={saving} />
               </View>
-              <View style={{ height: 32 }} />
+              <View style={{ height: 40 }} />
             </View>
           </ScrollView>
         </View>
@@ -514,19 +531,22 @@ const s = StyleSheet.create({
   medSearchIco: { fontSize: 16 },
   medSearchInp: { flex: 1, fontSize: 14, fontFamily: 'Nunito_400Regular', color: N.forest },
   suggestionsBox: { backgroundColor: N.white, borderRadius: 12, borderWidth: 1, borderColor: N.parchment, marginBottom: 12, overflow: 'hidden' },
+  suggestionsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 10, backgroundColor: N.mist, borderBottomWidth: 1, borderBottomColor: N.parchment },
+  suggestionsHeaderTxt: { fontSize: 11, fontFamily: 'Nunito_700Bold', color: N.moss, letterSpacing: 0.5 },
+  suggestionsCount: { fontSize: 11, fontFamily: 'Nunito_400Regular', color: N.stone },
   suggestionItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: 1, borderBottomColor: N.parchment },
   suggestionIcon: { fontSize: 16 },
-  suggestionTxt: { flex: 1, fontSize: 14, fontFamily: 'Nunito_600SemiBold', color: N.forest },
-  selectedMedBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: N.mist, borderRadius: 10, padding: 10, marginBottom: 4 },
+  suggestionTxt: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', color: N.forest },
+  suggestionGeneric: { fontSize: 11, fontFamily: 'Nunito_400Regular', color: N.stone },
+  fdaVerified: { fontSize: 11, fontFamily: 'Nunito_600SemiBold', color: N.moss },
+  selectedMedBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: N.mist, borderRadius: 10, padding: 10, marginBottom: 8 },
   selectedMedIcon: { fontSize: 16 },
   selectedMedTxt: { flex: 1, fontSize: 13, fontFamily: 'Nunito_700Bold', color: N.moss },
-
-  // FDA styles
   fdaLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: N.accentLight, borderRadius: 10, marginBottom: 12 },
   fdaLoadingTxt: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.accent },
   fdaCard: { backgroundColor: '#FAFBFF', borderRadius: 14, borderWidth: 1.5, borderColor: N.accentLight, marginBottom: 16, overflow: 'hidden' },
   fdaHeader: { backgroundColor: N.accentLight, padding: 14 },
-  fdaBadge: { fontSize: 11, fontFamily: 'Nunito_700Bold', color: N.accent, letterSpacing: 1, marginBottom: 4 },
+  fdaBadge: { fontSize: 10, fontFamily: 'Nunito_700Bold', color: N.accent, letterSpacing: 1, marginBottom: 4 },
   fdaTitle: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', color: N.forest },
   fdaGeneric: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, marginTop: 2 },
   fdaManuf: { fontSize: 11, fontFamily: 'Nunito_400Regular', color: N.stone, marginTop: 1 },
@@ -535,9 +555,9 @@ const s = StyleSheet.create({
   fdaSectionTxt: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone, lineHeight: 18 },
   fdaNotFound: { backgroundColor: N.mist, borderRadius: 10, padding: 12, marginBottom: 12 },
   fdaNotFoundTxt: { fontSize: 12, fontFamily: 'Nunito_400Regular', color: N.stone },
-
-  dateInputBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
-  dateInput: { flex: 1, backgroundColor: N.cream, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, fontFamily: 'Nunito_400Regular', color: N.forest, borderWidth: 1.5, borderColor: N.parchment, minWidth: 130 },
+  dateRow: { marginBottom: 8 },
+  dateInput: { backgroundColor: N.cream, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, fontFamily: 'Nunito_400Regular', color: N.forest, borderWidth: 1.5, borderColor: N.parchment },
+  quickDates: { flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
   dateQuickBtn: { backgroundColor: N.mist, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: N.parchment },
   dateQuickTxt: { color: N.moss, fontFamily: 'Nunito_600SemiBold', fontSize: 12 },
   optionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
@@ -545,7 +565,7 @@ const s = StyleSheet.create({
   optionBtnActive: { backgroundColor: N.moss, borderColor: N.moss },
   optionTxt: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: N.stone },
   optionTxtActive: { color: N.white },
-  notesInputBox: { backgroundColor: N.cream, borderRadius: 12, borderWidth: 1.5, borderColor: N.parchment, padding: 12, marginBottom: 20 },
+  notesBox: { backgroundColor: N.cream, borderRadius: 12, borderWidth: 1.5, borderColor: N.parchment, padding: 12, marginBottom: 20 },
   notesInput: { fontSize: 13, fontFamily: 'Nunito_400Regular', color: N.forest, minHeight: 80, textAlignVertical: 'top' },
   modalActions: { flexDirection: 'row', gap: 12, marginTop: 4 },
 })

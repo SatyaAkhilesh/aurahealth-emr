@@ -105,7 +105,6 @@ export default function AppointmentsCRUD() {
     setForm({ ...form, datetime: d.toISOString().slice(0, 16) })
   }
 
-  // Quick status toggle directly from card
   const toggleStatus = async (appt: Appointment) => {
     const nextStatus = appt.status === 'scheduled' ? 'completed'
       : appt.status === 'completed' ? 'cancelled'
@@ -126,6 +125,23 @@ export default function AppointmentsCRUD() {
     if (error) showAlert('Error ❌', 'Failed to update status')
     else {
       setAppointments(prev => prev.map(a => a.id === appt.id ? { ...a, status: nextStatus } : a))
+    }
+  }
+
+  const handleEndRecurring = async (appt: Appointment) => {
+    const confirmed = await showConfirm(
+      'End Recurring',
+      'Stop this recurring appointment?'
+    )
+    if (!confirmed) return
+    const { error } = await supabase
+      .from('appointments')
+      .update({ repeat: 'none' })
+      .eq('id', appt.id)
+    if (error) showAlert('Error ❌', 'Failed to end recurring')
+    else {
+      showAlert('Done 🌿', 'Recurring appointment ended!')
+      setAppointments(prev => prev.map(a => a.id === appt.id ? { ...a, repeat: 'none' } : a))
     }
   }
 
@@ -266,6 +282,17 @@ export default function AppointmentsCRUD() {
                       </Text>
                       <Text style={[s.statusChange, { color: cfg.text }]}>  tap to change →</Text>
                     </TouchableOpacity>
+
+                    {/* End Recurring Button */}
+                    {appt.repeat !== 'none' && (
+                      <TouchableOpacity
+                        style={s.endBtn}
+                        onPress={() => handleEndRecurring(appt)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={s.endBtnTxt}>⏹ End Recurring</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   <View style={s.cardActions}>
                     <TouchableOpacity style={s.editBtn} onPress={() => openEditModal(appt)} activeOpacity={0.7}>
@@ -401,6 +428,8 @@ const s = StyleSheet.create({
   statusBadge: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, alignSelf: 'flex-start', marginTop: 8 },
   statusTxt: { fontSize: 12, fontFamily: 'Nunito_700Bold' },
   statusChange: { fontSize: 10, fontFamily: 'Nunito_400Regular', opacity: 0.7 },
+  endBtn: { marginTop: 8, alignSelf: 'flex-start', paddingVertical: 5, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: '#FECDD3', backgroundColor: '#FFF1F2' },
+  endBtnTxt: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', color: '#E11D48' },
   cardActions: { flexDirection: 'row', gap: 8 },
   editBtn: { padding: 9, backgroundColor: N.mist, borderRadius: 10 },
   editTxt: { fontSize: 15 },
