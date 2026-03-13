@@ -92,7 +92,7 @@ export default function AdminDashboard() {
           </View>
           {!isMobile && (
             <View>
-              <Text style={s.brandName}>AuraHealth</Text>
+              <Text style={s.brandName}>AURA HEALTH</Text>
               <Text style={s.brandSub}>Care Platform</Text>
             </View>
           )}
@@ -121,7 +121,7 @@ export default function AdminDashboard() {
             {!isMobile && (
               <View>
                 <Text style={s.adminName}>Admin</Text>
-                <Text style={s.adminRole}>Super Admin</Text>
+                
               </View>
             )}
           </View>
