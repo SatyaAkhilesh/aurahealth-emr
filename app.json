@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "aurahealth-emr",
-    "slug": "aurahealth-emr",
+    "name": "AuraHealth Admin EMR",
+    "slug": "aurahealth-admin-emr",
     "version": "1.0.0",
     "scheme": "aurahealth-emr",
     "orientation": "portrait",
